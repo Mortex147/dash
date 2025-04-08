@@ -108,7 +108,7 @@ const CandidateDetail = () => {
           `)
           .eq('id', id)
           .maybeSingle();
-
+  
         if (error) {
           toast({ 
             variant: "destructive", 
@@ -567,7 +567,7 @@ const CandidateDetail = () => {
   console.log("[CandidateDetail] Candidate state before render:", candidate);
 
   return (
-     <MainLayout>
+    <MainLayout>
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
@@ -743,31 +743,31 @@ const CandidateDetail = () => {
         )}
 
         {(user?.role === 'hr' || user?.role === 'admin' || user?.role === 'director') && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Schedule Interview</CardTitle>
-              <CardDescription>
-                Schedule or update an interview for the candidate
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-6">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <Label>Action</Label>
-                  <Select 
-                    value={interviewAction} 
-                    onValueChange={(value: 'create' | 'update' | 'cancel') => setInterviewAction(value)}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Select action" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="create">Create</SelectItem>
-                      <SelectItem value="update">Update</SelectItem>
-                      <SelectItem value="cancel">Cancel</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Schedule Interview</CardTitle>
+            <CardDescription>
+              Schedule or update an interview for the candidate
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <Label>Action</Label>
+                <Select 
+                  value={interviewAction} 
+                  onValueChange={(value: 'create' | 'update' | 'cancel') => setInterviewAction(value)}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select action" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="create">Create</SelectItem>
+                    <SelectItem value="update">Update</SelectItem>
+                    <SelectItem value="cancel">Cancel</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
                 
                 <div>
                   <Label>Manager</Label>
@@ -849,7 +849,7 @@ const CandidateDetail = () => {
                   <Textarea value={interviewNotes} onChange={(e) => setInterviewNotes(e.target.value)} />
                 </div>
 
-                <div>
+              <div>
                   <Button onClick={handleInterviewManagement} disabled={isManagingInterview}>
                     {isManagingInterview ? "Managing..." : "Manage Interview"}
                   </Button>
@@ -895,68 +895,68 @@ const CandidateDetail = () => {
                     readOnly 
                     className="bg-muted/50" 
                   />
-                </div>
-                <div>
-                  <Label>Scheduled At</Label>
-                  <Popover>
-                    <PopoverTrigger asChild>
-                      <Button
-                        variant={"outline"}
-                        className={cn(
-                          "w-[240px] justify-start text-left font-normal",
-                          !interviewScheduledAt && "text-muted-foreground"
-                        )}
-                      >
-                        <CalendarRange className="mr-2 h-4 w-4" />
-                        {interviewScheduledAt ? (
-                          format(interviewScheduledAt, "PPP")
-                        ) : (
-                          <span>Pick a date</span>
-                        )}
-                      </Button>
-                    </PopoverTrigger>
-                    <PopoverContent className="w-auto p-0" align="start">
-                      <Calendar
-                        mode="single"
-                        selected={interviewScheduledAt}
-                        onSelect={setInterviewScheduledAt}
-                        disabled={(date) =>
-                          date < new Date()
-                        }
-                        initialFocus
-                      />
-                    </PopoverContent>
-                  </Popover>
-                </div>
-                <div>
-                  <Label>Status</Label>
-                  <Select 
-                    value={interviewStatus} 
-                    onValueChange={(value: 'scheduled' | 'confirmed' | 'completed' | 'cancelled') => setInterviewStatus(value)}
-                  >
-                    <SelectTrigger className="w-[180px]">
-                      <SelectValue placeholder="Select status" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="scheduled">Scheduled</SelectItem>
-                      <SelectItem value="confirmed">Confirmed</SelectItem>
-                      <SelectItem value="completed">Completed</SelectItem>
-                      <SelectItem value="cancelled">Cancelled</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div>
-                  <Label>Notes</Label>
-                  <Textarea value={interviewNotes} onChange={(e) => setInterviewNotes(e.target.value)} />
-                </div>
-                <div>
-                  <Button onClick={handleInterviewManagement} disabled={isManagingInterview}>
-                    {isManagingInterview ? "Managing..." : "Manage Interview"}
-                  </Button>
-                </div>
               </div>
-            </CardContent>
-          </Card>
+              <div>
+                <Label>Scheduled At</Label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant={"outline"}
+                      className={cn(
+                        "w-[240px] justify-start text-left font-normal",
+                        !interviewScheduledAt && "text-muted-foreground"
+                      )}
+                    >
+                      <CalendarRange className="mr-2 h-4 w-4" />
+                      {interviewScheduledAt ? (
+                        format(interviewScheduledAt, "PPP")
+                      ) : (
+                        <span>Pick a date</span>
+                      )}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={interviewScheduledAt}
+                      onSelect={setInterviewScheduledAt}
+                      disabled={(date) =>
+                        date < new Date()
+                      }
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select 
+                  value={interviewStatus} 
+                  onValueChange={(value: 'scheduled' | 'confirmed' | 'completed' | 'cancelled') => setInterviewStatus(value)}
+                >
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue placeholder="Select status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="scheduled">Scheduled</SelectItem>
+                    <SelectItem value="confirmed">Confirmed</SelectItem>
+                    <SelectItem value="completed">Completed</SelectItem>
+                    <SelectItem value="cancelled">Cancelled</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Notes</Label>
+                <Textarea value={interviewNotes} onChange={(e) => setInterviewNotes(e.target.value)} />
+              </div>
+              <div>
+                <Button onClick={handleInterviewManagement} disabled={isManagingInterview}>
+                  {isManagingInterview ? "Managing..." : "Manage Interview"}
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
         )}
 
         {(user?.role === 'hr' || user?.role === 'manager') && (
