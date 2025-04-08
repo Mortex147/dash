@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -58,98 +57,110 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { supabase } from "@/integrations/supabase/client";
+import { Database } from "@/integrations/supabase/types";
+import { useAuth } from "@/contexts/AuthContext";
+
+// Define the type for an assessment row from Supabase
+type Assessment = Database['public']['Tables']['assessments']['Row'];
 
 const Assessments = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [searchTerm, setSearchTerm] = useState("");
   const [newAssessmentTitle, setNewAssessmentTitle] = useState("");
   const [newAssessmentDescription, setNewAssessmentDescription] = useState("");
-  const [newAssessmentType, setNewAssessmentType] = useState("screening");
+  const [newAssessmentDifficulty, setNewAssessmentDifficulty] = useState("Intermediate");
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
-  // Mocked assessments data
-  const assessments = [
-    {
-      id: 1,
-      title: "Initial Sales Knowledge",
-      description: "Basic assessment of sales knowledge and aptitude",
-      type: "Screening",
-      questions: 15,
-      submissions: 18,
-      avgScore: 72,
-      lastUpdated: "2023-09-15",
-      createdBy: "John Smith"
-    },
-    {
-      id: 2,
-      title: "Product Knowledge Quiz",
-      description: "Detailed quiz about our products and their features",
-      type: "Training",
-      questions: 20,
-      submissions: 12,
-      avgScore: 84,
-      lastUpdated: "2023-09-20",
-      createdBy: "Sarah Johnson"
-    },
-    {
-      id: 3,
-      title: "Sales Techniques Assessment",
-      description: "Evaluation of advanced sales techniques and strategies",
-      type: "Training",
-      questions: 25,
-      submissions: 10,
-      avgScore: 76,
-      lastUpdated: "2023-09-22",
-      createdBy: "John Smith"
-    },
-    {
-      id: 4,
-      title: "Objection Handling Quiz",
-      description: "Scenarios focused on handling customer objections",
-      type: "Sales Task",
-      questions: 12,
-      submissions: 8,
-      avgScore: 81,
-      lastUpdated: "2023-09-25",
-      createdBy: "Sarah Johnson"
-    },
-    {
-      id: 5,
-      title: "Final Assessment",
-      description: "Comprehensive assessment covering all training modules",
-      type: "Final",
-      questions: 30,
-      submissions: 5,
-      avgScore: 79,
-      lastUpdated: "2023-09-28",
-      createdBy: "John Smith"
-    }
-  ];
+  // Fetch assessments data using useQuery
+  const { 
+    data: fetchedAssessments, 
+    isLoading: isLoadingAssessments,
+    error: assessmentsError 
+  } = useQuery<Assessment[]>({
+    queryKey: ['assessments'],
+    queryFn: async (): Promise<Assessment[]> => {
+      const { data, error } = await supabase
+        .from('assessments')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-  const filteredAssessments = assessments.filter(assessment => 
+      if (error) {
+        toast.error("Failed to fetch assessments: " + error.message);
+        throw new Error(error.message);
+      }
+      return data || [];
+    },
+    enabled: !!user,
+  });
+
+  const filteredAssessments = fetchedAssessments?.filter(assessment => 
     assessment.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    assessment.description.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+    (assessment.description && assessment.description.toLowerCase().includes(searchTerm.toLowerCase()))
+  ) || [];
 
-  const deleteAssessment = (id: number) => {
-    toast.success("Assessment deleted successfully");
-  };
+  // Mutation for creating an assessment
+  const createAssessmentMutation = useMutation({
+    mutationFn: async (newAssessmentData: Omit<Assessment, 'id' | 'created_at' | 'updated_at'>) => {
+      const { data, error } = await supabase
+        .from('assessments')
+        .insert([newAssessmentData])
+        .select(); // Select the newly created row
 
-  const duplicateAssessment = (id: number) => {
-    toast.success("Assessment duplicated successfully");
-  };
+      if (error) {
+        throw new Error(error.message);
+      }
+      return data?.[0]; // Return the created assessment
+    },
+    onSuccess: () => {
+      // Invalidate and refetch the assessments query to show the new assessment
+      queryClient.invalidateQueries({ queryKey: ['assessments'] });
+      toast.success("Assessment created successfully");
+      setIsDialogOpen(false); // Close the dialog
+      // Reset form state
+      setNewAssessmentTitle("");
+      setNewAssessmentDescription("");
+      setNewAssessmentDifficulty("Intermediate"); // Reset difficulty state to a valid value
+    },
+    onError: (error) => {
+      toast.error("Failed to create assessment: " + error.message);
+    },
+  });
 
   const handleCreateAssessment = () => {
     if (!newAssessmentTitle) {
       toast.error("Assessment title is required");
       return;
     }
-    
-    // In a real app, this would send a request to the backend
-    toast.success("Assessment created successfully");
-    setIsDialogOpen(false);
-    setNewAssessmentTitle("");
-    setNewAssessmentDescription("");
-    setNewAssessmentType("screening");
+    if (!user) {
+      toast.error("You must be logged in to create an assessment.");
+      return;
+    }
+
+    // Prepare data for insertion using the correct state variable
+    const assessmentDataToInsert = {
+      title: newAssessmentTitle,
+      description: newAssessmentDescription || null,
+      difficulty: newAssessmentDifficulty, // Use difficulty state
+      created_by: user.id, 
+      prevent_backtracking: false, 
+      randomize_questions: false,
+      time_limit: null,
+    };
+
+    createAssessmentMutation.mutate(assessmentDataToInsert);
+  };
+
+  const deleteAssessment = (id: string) => {
+    // TODO: Implement delete mutation
+    toast.info("Delete functionality not yet implemented with database.");
+  };
+
+  const duplicateAssessment = (id: string) => {
+    // TODO: Implement duplicate mutation
+    toast.info("Duplicate functionality not yet implemented with database.");
   };
 
   return (
@@ -196,19 +207,18 @@ const Assessments = () => {
                   />
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="type">Assessment Type</Label>
+                  <Label htmlFor="difficulty">Difficulty Level</Label>
                   <Select
-                    value={newAssessmentType}
-                    onValueChange={setNewAssessmentType}
+                    value={newAssessmentDifficulty}
+                    onValueChange={setNewAssessmentDifficulty}
                   >
-                    <SelectTrigger id="type">
-                      <SelectValue placeholder="Select assessment type" />
+                    <SelectTrigger id="difficulty">
+                      <SelectValue placeholder="Select difficulty level" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="screening">Screening</SelectItem>
-                      <SelectItem value="training">Training</SelectItem>
-                      <SelectItem value="sales_task">Sales Task</SelectItem>
-                      <SelectItem value="final">Final</SelectItem>
+                      <SelectItem value="Basic">Basic</SelectItem>
+                      <SelectItem value="Intermediate">Intermediate</SelectItem>
+                      <SelectItem value="Advanced">Advanced</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -241,7 +251,7 @@ const Assessments = () => {
           <CardHeader>
             <CardTitle>All Assessments</CardTitle>
             <CardDescription>
-              {filteredAssessments.length} assessments found
+              {isLoadingAssessments ? "Loading..." : `${filteredAssessments.length} assessments found`}
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -249,43 +259,40 @@ const Assessments = () => {
               <TableHeader>
                 <TableRow>
                   <TableHead>Title</TableHead>
-                  <TableHead>Type</TableHead>
-                  <TableHead className="hidden md:table-cell">Questions</TableHead>
-                  <TableHead className="hidden md:table-cell">Submissions</TableHead>
-                  <TableHead className="hidden md:table-cell">Avg. Score</TableHead>
+                  <TableHead>Difficulty</TableHead>
                   <TableHead className="hidden lg:table-cell">Last Updated</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredAssessments.length > 0 ? (
+                {isLoadingAssessments ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-6">
+                      Loading assessments...
+                    </TableCell>
+                  </TableRow>
+                ) : assessmentsError ? (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center py-6 text-red-600">
+                      Error loading assessments: {assessmentsError.message}
+                    </TableCell>
+                  </TableRow>
+                ) : filteredAssessments.length > 0 ? (
                   filteredAssessments.map((assessment) => (
                     <TableRow key={assessment.id}>
                       <TableCell>
                         <div>
                           <div className="font-medium">{assessment.title}</div>
                           <div className="text-sm text-muted-foreground hidden md:block">
-                            {assessment.description}
+                            {assessment.description || "No description"}
                           </div>
                         </div>
                       </TableCell>
                       <TableCell>
-                        <Badge variant="outline">{assessment.type}</Badge>
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {assessment.questions}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        {assessment.submissions}
-                      </TableCell>
-                      <TableCell className="hidden md:table-cell">
-                        <span className={assessment.avgScore >= 80 ? "text-green-600" : 
-                                        assessment.avgScore >= 70 ? "text-amber-600" : "text-red-600"}>
-                          {assessment.avgScore}%
-                        </span>
+                        <Badge variant="outline">{assessment.difficulty || "Standard"}</Badge>
                       </TableCell>
                       <TableCell className="hidden lg:table-cell">
-                        {new Date(assessment.lastUpdated).toLocaleDateString()}
+                        {new Date(assessment.updated_at).toLocaleDateString()}
                       </TableCell>
                       <TableCell className="text-right">
                         <DropdownMenu>
@@ -324,7 +331,7 @@ const Assessments = () => {
                   ))
                 ) : (
                   <TableRow>
-                    <TableCell colSpan={7} className="text-center py-6">
+                    <TableCell colSpan={4} className="text-center py-6">
                       <div className="flex flex-col items-center justify-center">
                         <FileText className="h-12 w-12 text-muted-foreground mb-3" />
                         <h3 className="font-medium text-lg">No assessments found</h3>

@@ -121,8 +121,8 @@ const Login = () => {
           password: 'password123'
         },
         admin: {
-          email: 'admin@example.com',
-          password: 'password123'
+          email: 'achrafadmin@gmail.com',
+          password: 'achraf123'
         },
         hr: {
           email: 'hr@example.com',

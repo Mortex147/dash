@@ -1,4 +1,3 @@
-
 import React, { createContext, useState, useEffect, useContext } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
@@ -35,7 +34,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // Set up auth state listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       (event, currentSession) => {
-        console.log('Auth state changed:', event);
+        console.log('Auth state changed:', event, 'Session:', currentSession);
         setSession(currentSession);
         setUser(currentSession?.user ?? null);
         
@@ -48,8 +47,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             }, 0);
           }
         } else if (event === 'SIGNED_OUT') {
+          console.log('AuthContext: SIGNED_OUT event detected. Clearing profile.');
           setProfile(null);
-          console.log('User signed out');
+          console.log('AuthContext: Navigating to /login...');
           // Only redirect to login if not already there and not on public pages
           if (location.pathname !== '/login' && 
               location.pathname !== '/register' && 
@@ -225,17 +225,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     try {
       setIsLoading(true);
+      // Log session state right before calling Supabase signout
+      console.log("AuthContext: Attempting signOut. Current session state:", session);
       const { error } = await supabase.auth.signOut();
       
       if (error) {
+        // Log the specific error from Supabase
+        console.error("AuthContext: supabase.auth.signOut() error:", error); 
         throw error;
       }
       
       toast.success('Successfully signed out');
-      navigate('/login');
+      // Note: Navigation is handled by onAuthStateChange listener now
+      // navigate('/login');
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign out');
-      console.error('Error signing out:', error.message);
+      // Use the specific error logged above if available
+      console.error('AuthContext: Error in signOut function wrapper:', error.message); 
     } finally {
       setIsLoading(false);
     }

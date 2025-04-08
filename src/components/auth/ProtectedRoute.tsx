@@ -55,8 +55,12 @@ const ProtectedRoute: React.FC<ProtectedRouteProps> = ({
     console.log("Redirecting to correct dashboard based on role:", profile.role);
     if (profile.role === 'admin') {
       return <Navigate to="/dashboard/admin" replace />;
-    } else if (profile.role === 'manager' || profile.role === 'hr' || profile.role === 'director') {
+    } else if (profile.role === 'manager') {
       return <Navigate to="/dashboard/manager" replace />;
+    } else if (profile.role === 'director') {
+      return <Navigate to="/dashboard/director" replace />;
+    } else if (profile.role === 'hr') {
+      return <Navigate to="/dashboard/hr" replace />;
     } else {
       return <Navigate to="/dashboard/candidate" replace />;
     }

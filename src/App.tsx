@@ -1,4 +1,3 @@
-
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -14,6 +13,7 @@ import Application from "./pages/candidate/Application";
 import CandidateDashboard from "./pages/dashboard/CandidateDashboard";
 import ManagerDashboard from "./pages/dashboard/ManagerDashboard";
 import AdminDashboard from "./pages/dashboard/AdminDashboard";
+import DirectorDashboard from "./pages/dashboard/DirectorDashboard";
 import Training from "./pages/training/Training";
 import Quiz from "./pages/training/Quiz";
 import AssessmentQuiz from "./pages/training/AssessmentQuiz";
@@ -57,8 +57,18 @@ const App = () => (
               </ProtectedRoute>
             } />
             <Route path="/dashboard/manager" element={
-              <ProtectedRoute allowedRoles={['manager', 'hr', 'director']}>
-                <ManagerDashboard />
+              <ProtectedRoute allowedRoles={['manager']}>
+                <ManagerDashboard role="Manager"/>
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard/director" element={
+              <ProtectedRoute allowedRoles={['director']}>
+                <DirectorDashboard />
+              </ProtectedRoute>
+            } />
+            <Route path="/dashboard/hr" element={
+              <ProtectedRoute allowedRoles={['hr']}>
+                <ManagerDashboard role="Hr"/>
               </ProtectedRoute>
             } />
             <Route path="/dashboard/admin" element={

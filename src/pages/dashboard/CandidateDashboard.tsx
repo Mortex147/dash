@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -37,6 +36,7 @@ const CandidateDashboard = () => {
     email: "",
     currentStep: 1,
     applicationSubmitted: false,
+    status: null,
     stepStatus: {
       application: "pending",
       hrReview: "pending",
@@ -69,7 +69,7 @@ const CandidateDashboard = () => {
 
           const { data, error } = await supabase
             .from('candidates')
-            .select('*')
+            .select('*, status')
             .eq('id', user.id)
             .single();
 
@@ -81,8 +81,6 @@ const CandidateDashboard = () => {
           if (data) {
             console.log("Candidate data retrieved:", data);
             
-            // FIX: Check if all required application fields are completed
-            // An application is only considered submitted if resume, about_me_video, AND sales_pitch_video are all provided
             const applicationSubmitted = 
               data.resume !== null && 
               data.about_me_video !== null && 
@@ -107,8 +105,9 @@ const CandidateDashboard = () => {
             }
 
             const notifications = [];
+            const currentStatus = data.status?.toLowerCase();
             
-            if (!applicationSubmitted) {
+            if (!applicationSubmitted && (currentStatus === 'applied' || currentStatus === 'screening')) {
               notifications.push({
                 id: 1,
                 message: "Complete your application to begin the hiring process",
@@ -189,6 +188,7 @@ const CandidateDashboard = () => {
               stepStatus,
               trainingProgress,
               notifications,
+              status: data.status,
             }));
           }
         } catch (error) {
@@ -201,7 +201,11 @@ const CandidateDashboard = () => {
   }, [user, profile]);
 
   useEffect(() => {
-    if (candidateData.currentStep === 1 && !candidateData.applicationSubmitted) {
+    const currentStatus = candidateData.status?.toLowerCase();
+    if (
+      !candidateData.applicationSubmitted &&
+      (currentStatus === 'applied' || currentStatus === 'screening')
+    ) {
       setTimeout(() => {
         toast.info(
           "Please complete your application to begin the hiring process",
@@ -215,7 +219,7 @@ const CandidateDashboard = () => {
         );
       }, 1000);
     }
-  }, [candidateData.currentStep, candidateData.applicationSubmitted, navigate]);
+  }, [candidateData.applicationSubmitted, candidateData.status, navigate]);
 
   const trainingModules = [
     {
@@ -399,7 +403,8 @@ const CandidateDashboard = () => {
           </p>
         </div>
 
-        {!candidateData.applicationSubmitted && (
+        {!candidateData.applicationSubmitted && 
+         (candidateData.status?.toLowerCase() === 'applied' || candidateData.status?.toLowerCase() === 'screening') && (
           <div className="bg-amber-50 border border-amber-200 rounded-lg p-4 flex items-start">
             <AlertCircle className="text-amber-500 h-5 w-5 mr-2 mt-0.5" />
             <div>

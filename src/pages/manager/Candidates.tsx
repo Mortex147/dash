@@ -1,6 +1,8 @@
-
-import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import React, { useState, useEffect } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
+import { supabase } from "@/integrations/supabase/client";
+import { Link, useLocation } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -42,113 +44,149 @@ import {
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
+import { set } from "date-fns";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Candidates = () => {
-  const [expandedCandidate, setExpandedCandidate] = useState<number | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatus, setFilterStatus] = useState<string | null>(null);
+  const { user, profile } = useAuth();
+  const role = profile?.role?.toLowerCase();
+  const userId = user?.id;
+  const location = useLocation();
 
-  const toggleExpand = (id: number) => {
-    if (expandedCandidate === id) {
-      setExpandedCandidate(null);
-    } else {
-      setExpandedCandidate(id);
+  const getInitialStatusFilters = (): string[] => {
+    const params = new URLSearchParams(location.search);
+    const statuses = params.getAll('status');
+    console.log("Candidates page initial URL status filters:", statuses);
+    return statuses.length > 0 ? statuses : [];
+  };
+
+  const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [filterStatuses, setFilterStatuses] = useState<string[]>(getInitialStatusFilters);
+  const [filteredCandidates, setFilteredCandidates] = useState<any[]>([]);
+  
+  const { data: candidatesData = [], isLoading: isLoadingCandidates } = useQuery({
+    queryKey: ['candidatesPageData', role, role === 'manager' ? userId : null],
+    queryFn: async () => {
+      if (role === 'manager' && !userId) {
+         console.warn("Candidates page: Manager role detected, but no user ID available yet.");
+         return [];
+      }
+
+      try {
+        let query = supabase
+          .from('candidates')
+          .select(`
+            id,
+            status,
+            current_step,
+            updated_at,
+            candidate_profile:profiles!candidates_id_fkey(*),
+            assessment_results(score, completed, completed_at)
+          `);
+
+        if (role === 'manager' && userId) {
+          console.log(`Candidates page: Filtering for manager ID: ${userId}`);
+          query = query.eq('assigned_manager', userId);
+        }
+
+        query = query.order('updated_at', { ascending: false });
+        
+        const { data, error } = await query;
+        
+        console.log("Candidates.tsx Filtered Supabase Response:", { data, error });
+
+        if (error) {
+          toast.error(`Error fetching candidates: ${error.message}`);
+          throw error;
+        }
+        
+        return data || [];
+      } catch (err) {
+        console.error("Error in candidatesData query:", err);
+        return [];
+      }
+    },
+    enabled: !!(role && (role !== 'manager' || (role === 'manager' && !!userId)))
+  });
+
+  useEffect(() => {
+    const filtered = candidatesData.filter(candidate => {
+      const candidateName = candidate.candidate_profile?.name || "";
+      const candidateEmail = candidate.candidate_profile?.email || "";
+      const matchesSearch = candidateName.toLowerCase().includes(searchTerm.toLowerCase()) || 
+                            candidateEmail.toLowerCase().includes(searchTerm.toLowerCase());
+
+      const matchesFilter = filterStatuses.length > 0 
+          ? filterStatuses.includes(candidate.status) 
+          : true;
+          
+      return matchesSearch && matchesFilter;
+    });
+    
+    setFilteredCandidates(filtered);
+  }, [candidatesData, searchTerm, filterStatuses]);
+
+  const toggleExpand = (id: string) => {
+    setExpandedCandidate(prev => (prev === id ? null : id));
+  };
+
+  const deleteCandidate = async (id: string) => {
+    try {
+       const { error, count } = await supabase
+        .from('candidates')
+        .delete()
+        .eq('id', id)
+        .select();
+  
+      if (error) {
+        throw new Error(`Supabase error: ${error.message}`);
+      }
+  
+      if (count === 0) {
+        toast.error("Candidate not found or already deleted");
+        return;
+      }
+   
+      setFilteredCandidates(prevState => prevState.filter(candidate => candidate.id !== id));
+  
+      toast.success("Candidate deleted successfully");
+  
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Deletion failed";
+      toast.error(`Error deleting candidate: ${message}`);
     }
   };
-
-  const deleteCandidate = (id: number) => {
-    toast.success("Candidate deleted successfully");
-  };
-
-  const scheduleInterview = (id: number) => {
+  
+  const scheduleInterview = (id: string) => {
     toast.success("Interview scheduled successfully");
+    // Implement interview scheduling logic here
   };
-
-  const candidates = [
-    {
-      id: 1,
-      name: "Jane Smith",
-      email: "jane.smith@example.com",
-      status: "applied",
-      statusText: "Applied",
-      applicationDate: "2023-09-28",
-      step: 1,
-      testScore: 78,
-      videos: 2,
-      resume: "jane_smith_resume.pdf",
-      location: "New York, NY",
-      phone: "+1 (555) 123-4567",
-    },
-    {
-      id: 2,
-      name: "Michael Johnson",
-      email: "michael.johnson@example.com",
-      status: "screening",
-      statusText: "Screening",
-      applicationDate: "2023-09-25",
-      step: 1,
-      testScore: 82,
-      videos: 2,
-      resume: "michael_johnson_resume.pdf",
-      location: "Chicago, IL",
-      phone: "+1 (555) 234-5678",
-    },
-    {
-      id: 3,
-      name: "Emily Davis",
-      email: "emily.davis@example.com",
-      status: "training",
-      statusText: "Training",
-      applicationDate: "2023-09-20",
-      step: 2,
-      testScore: 91,
-      videos: 2,
-      resume: "emily_davis_resume.pdf",
-      location: "Austin, TX",
-      phone: "+1 (555) 345-6789",
-    },
-    {
-      id: 4,
-      name: "David Wilson",
-      email: "david.wilson@example.com",
-      status: "sales_task",
-      statusText: "Sales Task",
-      applicationDate: "2023-09-15",
-      step: 3,
-      testScore: 85,
-      videos: 2,
-      resume: "david_wilson_resume.pdf",
-      location: "Seattle, WA",
-      phone: "+1 (555) 456-7890",
-    },
-    {
-      id: 5,
-      name: "Sarah Brown",
-      email: "sarah.brown@example.com",
-      status: "interview",
-      statusText: "Interview",
-      applicationDate: "2023-09-10",
-      step: 4,
-      testScore: 88,
-      videos: 2,
-      resume: "sarah_brown_resume.pdf",
-      location: "Boston, MA",
-      phone: "+1 (555) 567-8901",
-    },
-  ];
 
   const getStatusBadge = (status: string) => {
-    switch (status) {
+    switch (status?.toLowerCase()) {
       case "applied":
         return (
           <Badge className="bg-blue-100 text-blue-800">
             Applied
           </Badge>
         );
+      case "hr_review":
+        return (
+          <Badge className="bg-yellow-100 text-yellow-800">
+            <Clock className="mr-1 h-3 w-3" /> HR Review
+          </Badge>
+        );
       case "screening":
         return (
           <Badge className="bg-yellow-100 text-yellow-800">
             <Clock className="mr-1 h-3 w-3" /> Screening
+          </Badge>
+        );
+      case "hr_approved":
+        return (
+          <Badge className="bg-teal-100 text-teal-800">
+            <CheckCircle className="mr-1 h-3 w-3" /> HR Approved
           </Badge>
         );
       case "training":
@@ -164,9 +202,10 @@ const Candidates = () => {
           </Badge>
         );
       case "interview":
+      case "final_interview":
         return (
-          <Badge className="bg-green-100 text-green-800">
-            Interview
+          <Badge className="bg-indigo-100 text-indigo-800">
+            <Calendar className="mr-1 h-3 w-3" /> Interview Scheduled
           </Badge>
         );
       case "hired":
@@ -186,23 +225,36 @@ const Candidates = () => {
     }
   };
 
-  const filteredCandidates = candidates.filter(candidate => {
-    const matchesSearch = candidate.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-                         candidate.email.toLowerCase().includes(searchTerm.toLowerCase());
+  const getCandidateScore = (candidate: any) => {
+    if (!candidate.assessment_results || candidate.assessment_results.length === 0) {
+      return "N/A";
+    }
     
-    const matchesFilter = filterStatus ? candidate.status === filterStatus : true;
+    const scores = candidate.assessment_results
+      .filter((result: any) => result.score !== null)
+      .map((result: any) => result.score);
     
-    return matchesSearch && matchesFilter;
-  });
+    if (scores.length === 0) return "N/A";
+    
+    const avgScore = Math.round(scores.reduce((a: number, b: number) => a + b, 0) / scores.length);
+    // Return just the number, % sign is added in JSX
+    return avgScore; 
+  };
+
+  const handleStatusFilterChange = (status: string | null) => {
+    setFilterStatuses(status ? [status] : []);
+  };
 
   return (
     <MainLayout>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">Candidates</h1>
+            <h1 className="text-3xl font-bold tracking-tight">
+              {role === 'manager' ? "Your Assigned Candidates" : "All Candidates"}
+            </h1>
             <p className="text-muted-foreground mt-2">
-              Manage and review candidate applications
+               {role === 'manager' ? "Manage candidates assigned to you." : "Manage and review candidate applications"}
             </p>
           </div>
         </div>
@@ -222,33 +274,34 @@ const Candidates = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-2">
                   <Filter className="h-4 w-4" />
-                  {filterStatus ? `Filter: ${filterStatus}` : 'Filter'}
+                  {filterStatuses.length === 1 ? `Filter: ${filterStatuses[0]}` : 
+                   filterStatuses.length > 1 ? 'Multiple Filters' : 'Filter'}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => setFilterStatus(null)}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange(null)}>
                   All Status
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => setFilterStatus("applied")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("applied")}>
                   Applied
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("screening")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("screening")}>
                   Screening
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("training")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("training")}>
                   Training
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("sales_task")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("sales_task")}>
                   Sales Task
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("interview")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("interview")}>
                   Interview
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("hired")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("hired")}>
                   Hired
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setFilterStatus("rejected")}>
+                <DropdownMenuItem onClick={() => handleStatusFilterChange("rejected")}>
                   Rejected
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -258,9 +311,9 @@ const Candidates = () => {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>All Candidates</CardTitle>
+            <CardTitle>Candidate List</CardTitle>
             <CardDescription>
-              Total: {filteredCandidates.length} candidates
+              Total: {filteredCandidates.length} candidates found
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -276,7 +329,13 @@ const Candidates = () => {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredCandidates.length > 0 ? (
+                  {isLoadingCandidates ? (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center py-4">
+                        Loading candidates...
+                      </TableCell>
+                    </TableRow>
+                  ) : filteredCandidates.length > 0 ? (
                     filteredCandidates.map((candidate) => (
                       <React.Fragment key={candidate.id}>
                         <TableRow>
@@ -293,9 +352,11 @@ const Candidates = () => {
                                   <ChevronDown className="h-4 w-4" />}
                               </Button>
                               <div>
-                                <div className="font-medium">{candidate.name}</div>
+                                <div className="font-medium">
+                                  {candidate.candidate_profile?.name}
+                                </div>
                                 <div className="text-sm text-muted-foreground">
-                                  {candidate.email}
+                                  {candidate.candidate_profile?.email}
                                 </div>
                               </div>
                             </div>
@@ -304,10 +365,10 @@ const Candidates = () => {
                             {getStatusBadge(candidate.status)}
                           </TableCell>
                           <TableCell className="hidden md:table-cell">
-                            {new Date(candidate.applicationDate).toLocaleDateString()}
+                            {new Date(candidate.updated_at).toLocaleDateString()}
                           </TableCell>
                           <TableCell className="hidden md:table-cell">
-                            {candidate.testScore}%
+                            {getCandidateScore(candidate) !== "N/A" ? `${getCandidateScore(candidate)}%` : "N/A"}
                           </TableCell>
                           <TableCell className="text-right">
                             <DropdownMenu>
@@ -321,14 +382,6 @@ const Candidates = () => {
                                   <Link to={`/candidates/${candidate.id}`}>
                                     <Eye className="h-4 w-4 mr-2" /> View Details
                                   </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link to={`/candidates/${candidate.id}/edit`}>
-                                    <Edit className="h-4 w-4 mr-2" /> Edit
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => scheduleInterview(candidate.id)}>
-                                  <Calendar className="h-4 w-4 mr-2" /> Schedule Interview
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
                                 <DropdownMenuItem onClick={() => deleteCandidate(candidate.id)} className="text-red-600">
@@ -347,7 +400,7 @@ const Candidates = () => {
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Email:</span>
-                                      <span>{candidate.email}</span>
+                                      <span>{candidate.candidate_profile?.email}</span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Phone:</span>
@@ -364,11 +417,11 @@ const Candidates = () => {
                                   <div className="space-y-1 text-sm">
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Step:</span>
-                                      <span>Step {candidate.step} of 4</span>
+                                      <span>Step {candidate.current_step} of 4</span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Test Score:</span>
-                                      <span>{candidate.testScore}%</span>
+                                      <span>{getCandidateScore(candidate) !== "N/A" ? `${getCandidateScore(candidate)}%` : "N/A"}</span>
                                     </div>
                                     <div className="flex justify-between">
                                       <span className="text-muted-foreground">Videos:</span>
@@ -385,9 +438,11 @@ const Candidates = () => {
                                         View Full Profile
                                       </Link>
                                     </Button>
-                                    <Button size="sm" variant="outline" className="w-full justify-start" onClick={() => scheduleInterview(candidate.id)}>
+                                    <Button size="sm" variant="outline" className="w-full justify-start">
                                       <Calendar className="h-4 w-4 mr-2" />
-                                      Schedule Interview
+                                      <Link to={`/candidates/${candidate.id}`}>
+                                        Schedule Interview
+                                      </Link>
                                     </Button>
                                   </div>
                                 </div>
@@ -400,7 +455,7 @@ const Candidates = () => {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-4">
-                        No candidates found matching your search.
+                        No candidates found matching your criteria.
                       </TableCell>
                     </TableRow>
                   )}

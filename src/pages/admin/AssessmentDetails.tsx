@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
@@ -7,6 +6,7 @@ import { Card } from "@/components/ui/card";
 import { ArrowLeft } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { useQueryClient } from "@tanstack/react-query";
 import Loading from "@/components/ui/loading";
 import ErrorMessage from "@/components/ui/error-message";
 import AssessmentForm, { AssessmentFormValues } from "@/components/assessments/AssessmentForm";
@@ -17,6 +17,7 @@ import AssessmentStats from "@/components/assessments/AssessmentStats";
 const AssessmentDetails = () => {
   const { assessmentId } = useParams();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const [assessment, setAssessment] = useState<any>(null);
   const [sections, setSections] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
@@ -143,11 +144,17 @@ const AssessmentDetails = () => {
         </div>
 
         <Card>
-          {formData && (
+          {loading ? (
+            <Loading />
+          ) : loadingError ? (
+            <ErrorMessage message={loadingError} />
+          ) : formData && (
             <AssessmentForm 
               assessmentId={assessmentId || ""} 
               initialData={formData}
-              onSuccess={() => {}} 
+              onSuccess={() => {
+                queryClient.invalidateQueries({ queryKey: ['assessments'] });
+              }} 
             />
           )}
         </Card>

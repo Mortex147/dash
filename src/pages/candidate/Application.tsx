@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -53,6 +52,7 @@ const formSchema = z.object({
 const Application = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [isSubmitted, setIsSubmitted] = useState(false);
+  const [candidateStatus, setCandidateStatus] = useState<string | null>(null);
   const [applicationData, setApplicationData] = useState({
     resume: null,
     aboutMeVideo: null,
@@ -79,7 +79,7 @@ const Application = () => {
       try {
         const { data, error } = await supabase
           .from("candidates")
-          .select("resume, about_me_video, sales_pitch_video")
+          .select("resume, about_me_video, sales_pitch_video, status")
           .eq("id", user.id)
           .single();
 
@@ -99,6 +99,8 @@ const Application = () => {
           form.setValue("resume", data.resume || "");
           form.setValue("aboutMeVideo", data.about_me_video || "");
           form.setValue("salesPitchVideo", data.sales_pitch_video || "");
+
+          setCandidateStatus(data.status);
 
           // Check if all required fields are filled to determine if application is submitted
           if (data.resume && data.about_me_video && data.sales_pitch_video) {
@@ -191,12 +193,19 @@ const Application = () => {
     });
   };
 
+  // Determine which alert to show
+  const showApplicationRequiredAlert = 
+    candidateStatus && // Status must be loaded
+    ["applied", "screening"].includes(candidateStatus.toLowerCase()); // Only show if status is initial
+  
+  const showApplicationSubmittedAlert = isSubmitted; // Show only if form fields were submitted
+
   return (
     <MainLayout>
       <div className="container mx-auto py-8">
         <h1 className="text-3xl font-bold mb-8">Application Form</h1>
 
-        {isSubmitted ? (
+        {showApplicationSubmittedAlert ? (
           <Alert className="mb-8">
             <AlertTitle>Application Submitted</AlertTitle>
             <AlertDescription>
@@ -204,7 +213,7 @@ const Application = () => {
               You'll be notified when there's an update on your application status.
             </AlertDescription>
           </Alert>
-        ) : (
+        ) : showApplicationRequiredAlert ? (
           <Alert className="mb-8" variant="destructive">
             <AlertTitle>Application Required</AlertTitle>
             <AlertDescription>
@@ -212,7 +221,7 @@ const Application = () => {
               All fields are required.
             </AlertDescription>
           </Alert>
-        )}
+        ) : null} {/* No alert if submitted=false AND status is past initial stages */}
 
         <Form {...form}>
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-8">

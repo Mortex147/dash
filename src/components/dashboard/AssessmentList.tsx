@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -15,9 +14,10 @@ import {
   ArrowRight,
   FileText,
 } from "lucide-react";
+import { AssessmentWithStats } from "@/types";
 
 interface AssessmentListProps {
-  assessments: any[];
+  assessments: AssessmentWithStats[];
   isLoading: boolean;
 }
 
@@ -51,7 +51,7 @@ const AssessmentList: React.FC<AssessmentListProps> = ({
           {isLoading ? (
             <div className="text-center py-4">Loading assessments...</div>
           ) : assessments && assessments.length > 0 ? (
-            assessments.map((assessment: any) => (
+            assessments.map((assessment: AssessmentWithStats) => (
               <div 
                 key={assessment.id}
                 className="border rounded-lg p-3 hover:bg-secondary/50 transition-colors"

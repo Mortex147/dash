@@ -1,9 +1,9 @@
-
 import React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardFooter } from "@/components/ui/card";
 import { Users, FileText, Calendar, ArrowRight } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 interface DashboardStatsProps {
   totalCandidates: number;
@@ -20,6 +20,14 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({
   nextInterviewDate,
   isLoading,
 }) => {
+  const { profile } = useAuth();
+  const role = profile?.role?.toLowerCase();
+
+  const pendingLink = 
+    role === 'manager' || role === 'director'
+      ? `/candidates?status=hr_approved&status=final_interview`
+      : '/candidates';
+
   const formatDateTime = (dateString?: string) => {
     if (!dateString) return '';
     const date = new Date(dateString);
@@ -46,7 +54,7 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({
         </CardContent>
       </Card>
 
-      <Card>
+      <Card className="flex-1">
         <CardContent className="p-6">
           <div className="flex items-center justify-between">
             <div>
@@ -61,14 +69,14 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({
               <FileText className="h-6 w-6 text-amber-600" />
             </div>
           </div>
-          <div className="mt-4">
-            <Button size="sm" variant="ghost" className="h-7 px-2 text-xs" asChild>
-              <Link to="/candidates">
-                View pending <ArrowRight className="ml-1 h-3 w-3" />
-              </Link>
-            </Button>
-          </div>
         </CardContent>
+        <CardFooter>
+          <Link to={pendingLink}>
+            <Button variant="outline" size="sm">
+              View pending
+            </Button>
+          </Link>
+        </CardFooter>
       </Card>
 
       <Card>

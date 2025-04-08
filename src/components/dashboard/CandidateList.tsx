@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -30,15 +29,20 @@ import {
 interface CandidateListProps {
   candidates: any[];
   isLoading: boolean;
+  role: string;
 }
 
 const CandidateList: React.FC<CandidateListProps> = ({
   candidates,
   isLoading,
+  role,
 }) => {
-  const [expandedCandidate, setExpandedCandidate] = useState<number | null>(null);
+  console.log("CandidateList received candidates:", candidates);
+  console.log("CandidateList isLoading:", isLoading);
 
-  const toggleExpand = (id: number) => {
+  const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
+
+  const toggleExpand = (id: string) => {
     if (expandedCandidate === id) {
       setExpandedCandidate(null);
     } else {
@@ -127,9 +131,21 @@ const CandidateList: React.FC<CandidateListProps> = ({
       <CardHeader className="pb-3">
         <div className="flex justify-between items-center">
           <div>
-            <CardTitle>Candidates Awaiting Review</CardTitle>
+            <CardTitle>
+              {role?.toLowerCase() === 'director'
+                ? "All Candidates Overview"
+                : role?.toLowerCase() === 'manager' 
+                  ? "Your Assigned Candidates" 
+                  : "Candidates Awaiting Review"
+              }
+            </CardTitle>
             <CardDescription>
-              Review and approve candidates at different stages
+              {role?.toLowerCase() === 'director'
+                ? "View all candidates across all stages."
+                : role?.toLowerCase() === 'manager'
+                  ? "Review candidates assigned to you for next steps."
+                  : "Review and screen new candidates."
+              }
             </CardDescription>
           </div>
           <Button size="sm" className="h-8" asChild>
@@ -157,7 +173,7 @@ const CandidateList: React.FC<CandidateListProps> = ({
                   </TableCell>
                 </TableRow>
               ) : candidates && candidates.length > 0 ? (
-                candidates.slice(0, 5).map((candidate: any, index: number) => (
+                candidates.slice(0, 5).map((candidate: any) => (
                   <React.Fragment key={candidate.id}>
                     <TableRow>
                       <TableCell>
@@ -166,16 +182,16 @@ const CandidateList: React.FC<CandidateListProps> = ({
                             variant="ghost"
                             size="sm"
                             className="h-8 w-8 p-0 mr-2 text-muted-foreground"
-                            onClick={() => toggleExpand(index)}
+                            onClick={() => toggleExpand(candidate.id)}
                           >
-                            {expandedCandidate === index ? 
+                            {expandedCandidate === candidate.id ? 
                               <ChevronUp className="h-4 w-4" /> : 
                               <ChevronDown className="h-4 w-4" />}
                           </Button>
                           <div>
                             <div className="font-medium">{candidate.profiles?.name}</div>
                             <div className="text-sm text-muted-foreground">
-                              {candidate.profiles?.email}
+                              {candidate.candidate_profile?.email}
                             </div>
                           </div>
                         </div>
@@ -197,7 +213,7 @@ const CandidateList: React.FC<CandidateListProps> = ({
                         </Button>
                       </TableCell>
                     </TableRow>
-                    {expandedCandidate === index && (
+                    {expandedCandidate === candidate.id && (
                       <TableRow className="bg-muted/50">
                         <TableCell colSpan={5} className="p-4">
                           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

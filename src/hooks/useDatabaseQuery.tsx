@@ -1,4 +1,3 @@
-
 import { useState, useEffect, useCallback } from 'react';
 import { supabase } from '@/integrations/supabase/client';
 import { useAuth } from '@/contexts/AuthContext';
@@ -177,28 +176,79 @@ export function useRealTimeSubscription<T = any>(
   return { data };
 }
 
+// Helper function to map status to current_step (returns number)
+const getStepFromStatus = (status?: string): number | undefined => {
+  if (!status) return undefined;
+  const lowerStatus = status.toLowerCase();
+  switch (lowerStatus) {
+    case "applied":
+    case "screening":
+    case "hr_review":
+      return 1; // Application Step
+    case "hr_approved":
+      return 2; // Assessment Step
+    case "training":
+      return 3; // Training Step
+    case "sales_task":
+      return 4; // Sales Task Step
+    case "interview":
+    case "final_interview":
+      return 5; // Interview Step
+    case "hired":
+      return 6; // Hired Step
+    case "rejected":
+      return 7; // Rejected Step (adjust if needed)
+    default:
+      // Return undefined to avoid accidentally changing step for unknown statuses
+      return undefined;
+  }
+};
+
 // Add a new function to update application status
-export async function updateApplicationStatus(userId: string, applicationData: {
-  resume?: string | null;
-  about_me_video?: string | null;
-  sales_pitch_video?: string | null;
-  status?: string;
-}) {
+export const updateApplicationStatus = async (
+  candidateId: string, // Renamed from userId
+  applicationData: {
+    status?: string;
+    resume?: string | null;
+    about_me_video?: string | null;
+    sales_pitch_video?: string | null;
+    // Note: current_step is now derived, not passed directly
+  }
+) => {
   try {
+    // Prepare the data to update
+    const updatePayload: Partial<Database['public']['Tables']['candidates']['Row']> = {
+      ...applicationData, // Include other fields like resume, videos
+    };
+
+    // If status is being updated, derive and add the current_step
+    if (applicationData.status) {
+      const newStep = getStepFromStatus(applicationData.status);
+      if (newStep) {
+        updatePayload.current_step = newStep;
+      }
+      // Ensure status is part of the payload if provided
+      updatePayload.status = applicationData.status;
+    }
+
+
     const { data, error } = await supabase
       .from('candidates')
-      .update({
-        ...applicationData,
-      })
-      .eq('id', userId);
-    
+      .update(updatePayload) // Use the combined payload
+      .eq('id', candidateId) // Use renamed parameter
+      .select() // Add select to return updated record
+      .single();
+
     if (error) throw error;
+    if (!data) throw new Error('No candidate found with that ID');
+
     return { data, error: null };
-  } catch (error: any) {
-    console.error("Error updating application status:", error);
-    return { data: null, error };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Unknown error occurred';
+    console.error("Update error:", message);
+    return { data: null, error: new Error(message) };
   }
-}
+};
 
 // Add a new function to manage interviews
 export async function manageInterview(interview: {

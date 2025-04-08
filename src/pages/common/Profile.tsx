@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import MainLayout from "@/components/layout/MainLayout";
 import { Button } from "@/components/ui/button";
@@ -35,12 +34,12 @@ import {
 
 // Indian states array
 const indianStates = [
-  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh", 
-  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka", 
-  "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram", 
-  "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu", 
+  "Andhra Pradesh", "Arunachal Pradesh", "Assam", "Bihar", "Chhattisgarh",
+  "Goa", "Gujarat", "Haryana", "Himachal Pradesh", "Jharkhand", "Karnataka",
+  "Kerala", "Madhya Pradesh", "Maharashtra", "Manipur", "Meghalaya", "Mizoram",
+  "Nagaland", "Odisha", "Punjab", "Rajasthan", "Sikkim", "Tamil Nadu",
   "Telangana", "Tripura", "Uttar Pradesh", "Uttarakhand", "West Bengal",
-  "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu", 
+  "Andaman and Nicobar Islands", "Chandigarh", "Dadra and Nagar Haveli and Daman and Diu",
   "Delhi", "Jammu and Kashmir", "Ladakh", "Lakshadweep", "Puducherry"
 ];
 
@@ -53,77 +52,120 @@ const profileSchema = z.object({
   state: z.string().optional(),
 });
 
+// Profile Component
 const Profile = () => {
-  const { profile, updateProfile } = useAuth();
+  const { profile } = useAuth();
+  const [candidate, setCandidate] = useState<any>(null); // To store candidate data from Supabase
   const [isLoading, setIsLoading] = useState(false);
 
   // Parse location into city and state
   const parseLocation = (location: string | undefined) => {
     if (!location) return { city: "", state: "" };
-    
+
     const parts = location.split(", ");
     if (parts.length === 2) {
       return { city: parts[0], state: parts[1] };
     }
-    
+
     return { city: location, state: "" };
   };
-  
-  const locationData = parseLocation(profile?.candidates?.[0]?.location);
+
+  // Default values and initial location parsing for form
+  const locationData = candidate ? parseLocation(candidate?.location) : { city: "", state: "" };
 
   const form = useForm<z.infer<typeof profileSchema>>({
     resolver: zodResolver(profileSchema),
     defaultValues: {
       name: profile?.name || "",
       email: profile?.email || "",
-      phone: profile?.candidates?.[0]?.phone || "",
+      phone: candidate?.phone || "",
       city: locationData.city,
       state: locationData.state,
     },
   });
 
-  // Update form values when profile loads
+  // Fetch profile and candidate data when the component is mounted
   useEffect(() => {
+    const fetchData = async () => {
+      try {
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("id", profile?.id)
+          .single();
+
+        if (profileError) {
+          throw new Error(profileError.message);
+        }
+
+        let candidateData = null;
+        if (profile?.role === "candidate") {
+          const { data: candidateRes, error: candidateError } = await supabase
+            .from("candidates")
+            .select("*")
+            .eq("id", profile?.id)
+            .single();
+
+          if (candidateError) {
+            throw new Error(candidateError.message);
+          }
+          candidateData = candidateRes;
+          setCandidate(candidateData);
+        }
+
+        form.reset({
+          name: profileData?.name || "",
+          email: profileData?.email || "",
+          phone: candidateData?.phone || "",
+          city: candidateData ? candidateData?.location.split(", ")[0] : "",
+          state: candidateData ? candidateData?.location.split(", ")[1] : "",
+        });
+      } catch (error) {
+        toast.error("Failed to load profile data");
+      }
+    };
+
     if (profile) {
-      const locationData = parseLocation(profile?.candidates?.[0]?.location);
-      
-      form.reset({
-        name: profile.name || "",
-        email: profile.email || "",
-        phone: profile.candidates?.[0]?.phone || "",
-        city: locationData.city,
-        state: locationData.state,
-      });
+      fetchData();
     }
   }, [profile, form]);
 
   const onSubmit = async (values: z.infer<typeof profileSchema>) => {
     setIsLoading(true);
-    
+
     try {
-      // Update profile
+      // Update profile data in Supabase
       const profileData = {
         name: values.name,
+        email: values.email,
       };
-      
-      await updateProfile(profileData);
-      
-      // If candidate, update candidate table
-      if (profile?.role === 'candidate' && profile?.candidates?.[0]) {
-        // Combine city and state for location
-        const location = `${values.city}, ${values.state}`;
-        
-        const { error } = await supabase
-          .from('candidates')
-          .update({
-            phone: values.phone,
-            location: location,
-          })
-          .eq('id', profile.id);
-          
-        if (error) throw error;
+
+      const { error: profileUpdateError } = await supabase
+        .from("profiles")
+        .update(profileData)
+        .eq("id", profile?.id);
+
+      if (profileUpdateError) {
+        throw new Error(profileUpdateError.message);
       }
-      
+
+      // Update candidate data in Supabase if the role is "candidate"
+      if (profile?.role === "candidate" && candidate) {
+        const candidateData = {
+          phone: values.phone,
+          location: `${values.city}, ${values.state}`,
+        };
+
+        const { error: candidateUpdateError } = await supabase
+          .from("candidates")
+          .update(candidateData)
+          .eq("id", profile?.id);
+
+        if (candidateUpdateError) {
+          throw new Error(candidateUpdateError.message);
+        }
+      }
+
       toast.success("Profile updated successfully");
     } catch (error: any) {
       toast.error(error.message || "An error occurred while updating your profile");
@@ -266,14 +308,9 @@ const Profile = () => {
                         <div className="py-1 px-2 bg-primary/10 text-primary rounded text-xs font-medium">
                           {profile.role.charAt(0).toUpperCase() + profile.role.slice(1)}
                         </div>
-                        {profile.role === "candidate" && profile.candidates?.[0]?.status && (
+                        {profile.role === "candidate" && candidate?.status && (
                           <div className="py-1 px-2 bg-blue-100 text-blue-800 rounded text-xs font-medium">
-                            Status: {profile.candidates[0].status.charAt(0).toUpperCase() + profile.candidates[0].status.slice(1)}
-                          </div>
-                        )}
-                        {profile.role === "candidate" && profile.candidates?.[0]?.region && (
-                          <div className="py-1 px-2 bg-green-100 text-green-800 rounded text-xs font-medium">
-                            Region: {profile.candidates[0].region.charAt(0).toUpperCase() + profile.candidates[0].region.slice(1)}
+                            Status: {candidate.status.charAt(0).toUpperCase() + candidate.status.slice(1)}
                           </div>
                         )}
                       </div>

@@ -1,4 +1,3 @@
-
 // Let's make sure our UserRole type is available globally
 export type UserRole = 'admin' | 'manager' | 'candidate' | 'hr' | 'director';
 
@@ -14,4 +13,15 @@ export type Interview = {
   managerId: string;
   scheduledAt: string;
   status: 'scheduled' | 'confirmed' | 'completed' | 'cancelled';
+};
+
+// Add Assessment type used in AssessmentList.tsx and ManagerDashboard.tsx
+// Includes stats calculated in ManagerDashboard
+export type AssessmentWithStats = {
+  id: string;
+  title: string;
+  difficulty: string | null; // Matches Supabase type
+  updated_at: string;
+  avgScore: number;
+  submissions: number;
 };
