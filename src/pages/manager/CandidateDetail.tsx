@@ -541,9 +541,6 @@ const CandidateDetail = () => {
     }
   };
 
-  // Get user's role from profile
-  const userRole = user?.role === 'authenticated' ? 'director' : user?.role;
-
   if (isLoading) {
     return (
       <MainLayout>
@@ -745,7 +742,7 @@ const CandidateDetail = () => {
            </Card>
         )}
 
-        {(userRole === 'hr' || userRole === 'admin' || userRole === 'director') && (
+        {(user?.role === 'hr' || user?.role === 'admin' || user?.role === 'director') && (
           <Card>
             <CardHeader>
               <CardTitle>Schedule Interview</CardTitle>

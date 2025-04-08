@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState , useEffect} from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import { supabase } from "@/integrations/supabase/client";
-import { Link, useLocation } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -45,36 +45,19 @@ import {
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
 import { set } from "date-fns";
-import { useAuth } from "@/contexts/AuthContext";
 
 const Candidates = () => {
-  const { user, profile } = useAuth();
-  const role = profile?.role?.toLowerCase();
-  const userId = user?.id;
-  const location = useLocation();
-
-  const getInitialStatusFilters = (): string[] => {
-    const params = new URLSearchParams(location.search);
-    const statuses = params.getAll('status');
-    console.log("Candidates page initial URL status filters:", statuses);
-    return statuses.length > 0 ? statuses : [];
-  };
-
   const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
-  const [filterStatuses, setFilterStatuses] = useState<string[]>(getInitialStatusFilters);
+  const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filteredCandidates, setFilteredCandidates] = useState<any[]>([]);
   
-  const { data: candidatesData = [], isLoading: isLoadingCandidates } = useQuery({
-    queryKey: ['candidatesPageData', role, role === 'manager' ? userId : null],
+  // Fetch ALL candidate data, filtering will happen client-side
+  const { data: allCandidatesData = [], isLoading: isLoadingCandidates } = useQuery({
+    queryKey: ['allCandidatesPage'],
     queryFn: async () => {
-      if (role === 'manager' && !userId) {
-         console.warn("Candidates page: Manager role detected, but no user ID available yet.");
-         return [];
-      }
-
       try {
-        let query = supabase
+        const { data, error } = await supabase
           .from('candidates')
           .select(`
             id,
@@ -83,18 +66,10 @@ const Candidates = () => {
             updated_at,
             candidate_profile:profiles!candidates_id_fkey(*),
             assessment_results(score, completed, completed_at)
-          `);
-
-        if (role === 'manager' && userId) {
-          console.log(`Candidates page: Filtering for manager ID: ${userId}`);
-          query = query.eq('assigned_manager', userId);
-        }
-
-        query = query.order('updated_at', { ascending: false });
+          `)
+          .order('updated_at', { ascending: false });
         
-        const { data, error } = await query;
-        
-        console.log("Candidates.tsx Filtered Supabase Response:", { data, error });
+        console.log("Candidates.tsx RAW Supabase Response:", { data, error });
 
         if (error) {
           toast.error(`Error fetching candidates: ${error.message}`);
@@ -103,29 +78,27 @@ const Candidates = () => {
         
         return data || [];
       } catch (err) {
-        console.error("Error in candidatesData query:", err);
+        console.error("Error in allCandidatesData query:", err);
         return [];
       }
-    },
-    enabled: !!(role && (role !== 'manager' || (role === 'manager' && !!userId)))
+    }
   });
 
+  // Use allCandidatesData as the source for filtering
   useEffect(() => {
-    const filtered = candidatesData.filter(candidate => {
+    // Filter candidates whenever the searchTerm, filterStatus, or allCandidatesData changes
+    const filtered = allCandidatesData.filter(candidate => {
       const candidateName = candidate.candidate_profile?.name || "";
       const candidateEmail = candidate.candidate_profile?.email || "";
       const matchesSearch = candidateName.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             candidateEmail.toLowerCase().includes(searchTerm.toLowerCase());
 
-      const matchesFilter = filterStatuses.length > 0 
-          ? filterStatuses.includes(candidate.status) 
-          : true;
-          
+      const matchesFilter = filterStatus ? candidate.status === filterStatus : true;
       return matchesSearch && matchesFilter;
     });
     
     setFilteredCandidates(filtered);
-  }, [candidatesData, searchTerm, filterStatuses]);
+  }, [allCandidatesData, searchTerm, filterStatus]);
 
   const toggleExpand = (id: string) => {
     setExpandedCandidate(prev => (prev === id ? null : id));
@@ -148,6 +121,7 @@ const Candidates = () => {
         return;
       }
    
+      // Remove the deleted candidate from the filteredCandidates state
       setFilteredCandidates(prevState => prevState.filter(candidate => candidate.id !== id));
   
       toast.success("Candidate deleted successfully");
@@ -164,29 +138,17 @@ const Candidates = () => {
   };
 
   const getStatusBadge = (status: string) => {
-    switch (status?.toLowerCase()) {
+    switch (status) {
       case "applied":
         return (
           <Badge className="bg-blue-100 text-blue-800">
             Applied
           </Badge>
         );
-      case "hr_review":
-        return (
-          <Badge className="bg-yellow-100 text-yellow-800">
-            <Clock className="mr-1 h-3 w-3" /> HR Review
-          </Badge>
-        );
       case "screening":
         return (
           <Badge className="bg-yellow-100 text-yellow-800">
             <Clock className="mr-1 h-3 w-3" /> Screening
-          </Badge>
-        );
-      case "hr_approved":
-        return (
-          <Badge className="bg-teal-100 text-teal-800">
-            <CheckCircle className="mr-1 h-3 w-3" /> HR Approved
           </Badge>
         );
       case "training":
@@ -202,10 +164,9 @@ const Candidates = () => {
           </Badge>
         );
       case "interview":
-      case "final_interview":
         return (
-          <Badge className="bg-indigo-100 text-indigo-800">
-            <Calendar className="mr-1 h-3 w-3" /> Interview Scheduled
+          <Badge className="bg-green-100 text-green-800">
+            Interview
           </Badge>
         );
       case "hired":
@@ -241,20 +202,14 @@ const Candidates = () => {
     return avgScore; 
   };
 
-  const handleStatusFilterChange = (status: string | null) => {
-    setFilterStatuses(status ? [status] : []);
-  };
-
   return (
     <MainLayout>
       <div className="space-y-6">
         <div className="flex justify-between items-center">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">
-              {role === 'manager' ? "Your Assigned Candidates" : "All Candidates"}
-            </h1>
+            <h1 className="text-3xl font-bold tracking-tight">Candidates</h1>
             <p className="text-muted-foreground mt-2">
-               {role === 'manager' ? "Manage candidates assigned to you." : "Manage and review candidate applications"}
+              Manage and review candidate applications
             </p>
           </div>
         </div>
@@ -274,34 +229,33 @@ const Candidates = () => {
               <DropdownMenuTrigger asChild>
                 <Button variant="outline" className="flex items-center gap-2">
                   <Filter className="h-4 w-4" />
-                  {filterStatuses.length === 1 ? `Filter: ${filterStatuses[0]}` : 
-                   filterStatuses.length > 1 ? 'Multiple Filters' : 'Filter'}
+                  {filterStatus ? `Filter: ${filterStatus}` : 'Filter'}
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                <DropdownMenuItem onClick={() => handleStatusFilterChange(null)}>
+                <DropdownMenuItem onClick={() => setFilterStatus(null)}>
                   All Status
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("applied")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("applied")}>
                   Applied
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("screening")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("screening")}>
                   Screening
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("training")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("training")}>
                   Training
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("sales_task")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("sales_task")}>
                   Sales Task
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("interview")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("interview")}>
                   Interview
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("hired")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("hired")}>
                   Hired
                 </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => handleStatusFilterChange("rejected")}>
+                <DropdownMenuItem onClick={() => setFilterStatus("rejected")}>
                   Rejected
                 </DropdownMenuItem>
               </DropdownMenuContent>
@@ -311,9 +265,9 @@ const Candidates = () => {
 
         <Card>
           <CardHeader className="pb-3">
-            <CardTitle>Candidate List</CardTitle>
+            <CardTitle>All Candidates</CardTitle>
             <CardDescription>
-              Total: {filteredCandidates.length} candidates found
+              Total: {filteredCandidates.length} candidates
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -381,6 +335,17 @@ const Candidates = () => {
                                 <DropdownMenuItem asChild>
                                   <Link to={`/candidates/${candidate.id}`}>
                                     <Eye className="h-4 w-4 mr-2" /> View Details
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem asChild>
+                                  <Link to={`/candidates/${candidate.id}/edit`}>
+                                    <Edit className="h-4 w-4 mr-2" /> Edit
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onClick={() => scheduleInterview(candidate.id)}>
+                                  <Calendar className="h-4 w-4 mr-2" />
+                                  <Link to={`/candidates/${candidate.id}`}>
+                                     Schedule Interview
                                   </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
@@ -455,7 +420,7 @@ const Candidates = () => {
                   ) : (
                     <TableRow>
                       <TableCell colSpan={5} className="text-center py-4">
-                        No candidates found matching your criteria.
+                        No candidates found matching your search.
                       </TableCell>
                     </TableRow>
                   )}
