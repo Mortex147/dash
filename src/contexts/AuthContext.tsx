@@ -225,23 +225,31 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const signOut = async () => {
     try {
       setIsLoading(true);
+      // Clear any stored session data
+      sessionStorage.clear();
+      localStorage.clear();
+      
       // Log session state right before calling Supabase signout
       console.log("AuthContext: Attempting signOut. Current session state:", session);
+      
+      // Call Supabase signOut
       const { error } = await supabase.auth.signOut();
       
       if (error) {
-        // Log the specific error from Supabase
-        console.error("AuthContext: supabase.auth.signOut() error:", error); 
+        console.error("AuthContext: supabase.auth.signOut() error:", error);
         throw error;
       }
       
+      // Explicitly reset all auth state
+      setSession(null);
+      setUser(null);
+      setProfile(null);
+      
       toast.success('Successfully signed out');
-      // Note: Navigation is handled by onAuthStateChange listener now
-      // navigate('/login');
+      // Navigation is handled by onAuthStateChange listener
     } catch (error: any) {
       toast.error(error.message || 'Failed to sign out');
-      // Use the specific error logged above if available
-      console.error('AuthContext: Error in signOut function wrapper:', error.message); 
+      console.error('AuthContext: Error in signOut function wrapper:', error.message);
     } finally {
       setIsLoading(false);
     }

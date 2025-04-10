@@ -1,4 +1,3 @@
-
 import React from "react";
 import { Link } from "react-router-dom";
 import { Button } from "@/components/ui/button";
@@ -110,7 +109,7 @@ const InterviewList: React.FC<InterviewListProps> = ({
       </CardContent>
       <CardFooter>
         <Button variant="ghost" size="sm" className="w-full" asChild>
-          <Link to="/candidates">
+          <Link to="/interviews">
             Manage Interviews
           </Link>
         </Button>

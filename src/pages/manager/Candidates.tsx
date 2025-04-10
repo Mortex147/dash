@@ -41,23 +41,30 @@ import {
   Edit,
   Trash2,
   Calendar,
+  Info,
 } from "lucide-react";
 import MainLayout from "@/components/layout/MainLayout";
 import { toast } from "sonner";
 import { set } from "date-fns";
+import { useAuth } from "@/contexts/AuthContext";
 
 const Candidates = () => {
+  const { user } = useAuth();
   const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filteredCandidates, setFilteredCandidates] = useState<any[]>([]);
   
-  // Fetch ALL candidate data, filtering will happen client-side
-  const { data: allCandidatesData = [], isLoading: isLoadingCandidates } = useQuery({
-    queryKey: ['allCandidatesPage'],
+  // Fetch candidate data ASSIGNED TO THE CURRENT MANAGER
+  const { data: candidatesData = [], isLoading: isLoadingCandidates } = useQuery({
+    // Include user ID and role in queryKey to refetch if user/role changes
+    queryKey: ['candidatesPage', user?.id, user?.role],
     queryFn: async () => {
+      if (!user) return []; // Don't fetch if user is not logged in
+      
       try {
-        const { data, error } = await supabase
+        // Start building the query
+        let query = supabase
           .from('candidates')
           .select(`
             id,
@@ -67,27 +74,45 @@ const Candidates = () => {
             candidate_profile:profiles!candidates_id_fkey(*),
             assessment_results(score, completed, completed_at)
           `)
-          .order('updated_at', { ascending: false });
+          // Ensure we only get actual candidates by checking profile role
+          .eq('candidate_profile.role', 'candidate');
+
+        // Apply filter ONLY if the user is a manager
+        if (user.role === 'manager') {
+          query = query.eq('assigned_manager', user.id);
+        }
         
-        console.log("Candidates.tsx RAW Supabase Response:", { data, error });
+        // Always order
+        query = query.order('updated_at', { ascending: false });
+
+        // Execute the final query
+        const { data, error } = await query;
+
+        console.log(`Candidates.tsx (${user.role}) Supabase Response:`, { data, error });
 
         if (error) {
           toast.error(`Error fetching candidates: ${error.message}`);
           throw error;
         }
-        
+
         return data || [];
       } catch (err) {
-        console.error("Error in allCandidatesData query:", err);
+        console.error("Error in candidatesData query:", err);
         return [];
       }
-    }
+    },
+    enabled: !!user // Only run query if user exists
   });
 
-  // Use allCandidatesData as the source for filtering
+  // Use candidatesData as the source for filtering
   useEffect(() => {
-    // Filter candidates whenever the searchTerm, filterStatus, or allCandidatesData changes
-    const filtered = allCandidatesData.filter(candidate => {
+    // Filter candidates whenever the searchTerm, filterStatus, or candidatesData changes
+    const filtered = candidatesData.filter(candidate => {
+      // Explicitly check if the profile exists and role is 'candidate'
+      if (candidate.candidate_profile?.role !== 'candidate') {
+        return false; 
+      }
+      
       const candidateName = candidate.candidate_profile?.name || "";
       const candidateEmail = candidate.candidate_profile?.email || "";
       const matchesSearch = candidateName.toLowerCase().includes(searchTerm.toLowerCase()) || 
@@ -98,7 +123,7 @@ const Candidates = () => {
     });
     
     setFilteredCandidates(filtered);
-  }, [allCandidatesData, searchTerm, filterStatus]);
+  }, [candidatesData, searchTerm, filterStatus]);
 
   const toggleExpand = (id: string) => {
     setExpandedCandidate(prev => (prev === id ? null : id));
@@ -179,6 +204,18 @@ const Candidates = () => {
         return (
           <Badge className="bg-red-100 text-red-800">
             <XCircle className="mr-1 h-3 w-3" /> Rejected
+          </Badge>
+        );
+      case "hr_review":
+        return (
+          <Badge className="bg-cyan-100 text-cyan-800">
+            <Info className="mr-1 h-3 w-3" /> HR Review
+          </Badge>
+        );
+      case "hr_approved":
+        return (
+          <Badge className="bg-teal-100 text-teal-800">
+            <CheckCircle className="mr-1 h-3 w-3" /> HR Approved
           </Badge>
         );
       default:
@@ -316,6 +353,7 @@ const Candidates = () => {
                             </div>
                           </TableCell>
                           <TableCell>
+                            {console.log('Rendering Candidate Status:', candidate.id, '| Status:', candidate.status)}
                             {getStatusBadge(candidate.status)}
                           </TableCell>
                           <TableCell className="hidden md:table-cell">
@@ -335,17 +373,6 @@ const Candidates = () => {
                                 <DropdownMenuItem asChild>
                                   <Link to={`/candidates/${candidate.id}`}>
                                     <Eye className="h-4 w-4 mr-2" /> View Details
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem asChild>
-                                  <Link to={`/candidates/${candidate.id}/edit`}>
-                                    <Edit className="h-4 w-4 mr-2" /> Edit
-                                  </Link>
-                                </DropdownMenuItem>
-                                <DropdownMenuItem onClick={() => scheduleInterview(candidate.id)}>
-                                  <Calendar className="h-4 w-4 mr-2" />
-                                  <Link to={`/candidates/${candidate.id}`}>
-                                     Schedule Interview
                                   </Link>
                                 </DropdownMenuItem>
                                 <DropdownMenuSeparator />
@@ -401,12 +428,6 @@ const Candidates = () => {
                                       <Link to={`/candidates/${candidate.id}`}>
                                         <Eye className="h-4 w-4 mr-2" />
                                         View Full Profile
-                                      </Link>
-                                    </Button>
-                                    <Button size="sm" variant="outline" className="w-full justify-start">
-                                      <Calendar className="h-4 w-4 mr-2" />
-                                      <Link to={`/candidates/${candidate.id}`}>
-                                        Schedule Interview
                                       </Link>
                                     </Button>
                                   </div>

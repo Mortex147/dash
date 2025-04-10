@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
@@ -29,6 +28,7 @@ import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/contexts/AuthContext";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 
 // Form schema for training module
 const moduleSchema = z.object({
@@ -37,9 +37,16 @@ const moduleSchema = z.object({
   description: z.string().optional(),
   content: z.string().optional(),
   video_url: z.string().url({ message: "Please enter a valid URL." }).optional().or(z.literal('')),
+  quiz_id: z.string().uuid({ message: "Invalid Assessment ID." }).nullable().optional(),
 });
 
 type ModuleFormValues = z.infer<typeof moduleSchema>;
+
+// Interface for fetched assessments list
+interface AssessmentOption {
+  id: string;
+  title: string;
+}
 
 const TrainingModuleDetails = () => {
   const { moduleId } = useParams();
@@ -48,6 +55,7 @@ const TrainingModuleDetails = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [loadingError, setLoadingError] = useState<string | null>(null);
+  const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
 
   // Initialize form
   const form = useForm<ModuleFormValues>({
@@ -58,12 +66,13 @@ const TrainingModuleDetails = () => {
       description: "",
       content: "",
       video_url: "",
+      quiz_id: null,
     },
   });
 
   // Load module data
   useEffect(() => {
-    const loadModule = async () => {
+    const loadData = async () => {
       setLoading(true);
       setLoadingError(null);
       
@@ -73,6 +82,20 @@ const TrainingModuleDetails = () => {
           return;
         }
         
+        // Fetch assessments for the dropdown
+        const { data: assessmentList, error: assessmentError } = await supabase
+          .from("assessments")
+          .select("id, title")
+          .order('title', { ascending: true });
+
+        if (assessmentError) {
+            // Log error but don't necessarily fail the whole page load
+            console.error("Error fetching assessments list:", assessmentError.message);
+            toast.warning("Could not load assessment list for linking.");
+        } else {
+            setAssessments(assessmentList || []);
+        }
+
         // Fetch training module
         const { data: moduleData, error: moduleError } = await supabase
           .from("training_modules")
@@ -80,9 +103,7 @@ const TrainingModuleDetails = () => {
           .eq("id", moduleId)
           .single();
         
-        if (moduleError) {
-          throw moduleError;
-        }
+        if (moduleError) throw moduleError;
         
         if (!moduleData) {
           setLoadingError("Training module not found");
@@ -98,17 +119,21 @@ const TrainingModuleDetails = () => {
           description: moduleData.description || "",
           content: moduleData.content || "",
           video_url: moduleData.video_url || "",
+          quiz_id: moduleData.quiz_id || null,
         });
       } catch (error: any) {
-        console.error("Error loading training module:", error.message);
-        setLoadingError(`Failed to load training module: ${error.message}`);
-        toast.error("Failed to load training module data");
+        console.error("Error loading training module data:", error.message);
+        const specificError = error.message.includes('assessments') ? 
+                                "Could not load assessment list." : 
+                                `Failed to load training module: ${error.message}`;
+        setLoadingError(specificError);
+        toast.error("Failed to load required data");
       } finally {
         setLoading(false);
       }
     };
     
-    loadModule();
+    loadData();
   }, [moduleId, form]);
 
   const onSubmit = async (values: ModuleFormValues) => {
@@ -116,17 +141,22 @@ const TrainingModuleDetails = () => {
       toast.error("You must be logged in to update a training module");
       return;
     }
+    if (!moduleId) {
+      toast.error("Module ID is missing, cannot update.");
+      return;
+    }
     
     setSaving(true);
     
     try {
-      // Update the training module
+      // Include quiz_id in the update data
       const updateData = {
         title: values.title,
         module: values.module,
         description: values.description,
         content: values.content,
         video_url: values.video_url || null,
+        quiz_id: values.quiz_id || null, // Include quiz_id, ensuring null if empty/unselected
       };
       
       const { error } = await supabase
@@ -135,6 +165,9 @@ const TrainingModuleDetails = () => {
         .eq("id", moduleId);
       
       if (error) throw error;
+      
+      // Update local state for immediate UI feedback (optional but good UX)
+      setTrainingModule((prev: any) => prev ? { ...prev, quiz_id: values.quiz_id || null } : null);
       
       toast.success("Training module updated successfully");
     } catch (error: any) {
@@ -262,20 +295,46 @@ const TrainingModuleDetails = () => {
                   
                   <FormField
                     control={form.control}
+                    name="quiz_id"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Associated Quiz/Assessment</FormLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          defaultValue={field.value || undefined} // Handle null/undefined for Select
+                          value={field.value || undefined} // Controlled component value
+                        >
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select an assessment (optional)" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="">None</SelectItem> {/* Option to unset */}
+                            {assessments.map((assessment) => (
+                              <SelectItem key={assessment.id} value={assessment.id}>
+                                {assessment.title}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Link an existing assessment to serve as the quiz for this module.
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  
+                  <FormField
+                    control={form.control}
                     name="content"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Module Content</FormLabel>
+                        <FormLabel>Module Content (Text)</FormLabel>
                         <FormControl>
-                          <Textarea 
-                            placeholder="Add the module's detailed content here" 
-                            className="min-h-[200px]"
-                            {...field} 
-                          />
+                          <Textarea {...field} className="min-h-[150px]" placeholder="Enter module text content here..."/>
                         </FormControl>
-                        <FormDescription>
-                          You can use Markdown formatting for rich text
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -286,16 +345,10 @@ const TrainingModuleDetails = () => {
                     name="video_url"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Video URL</FormLabel>
+                        <FormLabel>Video URL (Optional)</FormLabel>
                         <FormControl>
-                          <Input 
-                            placeholder="https://example.com/video.mp4" 
-                            {...field} 
-                          />
+                          <Input {...field} placeholder="https://example.com/video.mp4"/>
                         </FormControl>
-                        <FormDescription>
-                          Link to a training video for this module (optional)
-                        </FormDescription>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -348,41 +401,6 @@ const TrainingModuleDetails = () => {
                     </div>
                   )}
                 </div>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitle>Manage Quiz</CardTitle>
-                <CardDescription>
-                  Create or edit the quiz for this module
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                {trainingModule?.quiz_id ? (
-                  <div className="space-y-4">
-                    <div className="flex items-center">
-                      <FileText className="h-5 w-5 mr-2 text-green-500" />
-                      <span>Quiz attached to this module</span>
-                    </div>
-                    <Button variant="outline" asChild className="w-full">
-                      <Link to={`/quiz/${trainingModule.quiz_id}`}>
-                        Edit Quiz
-                      </Link>
-                    </Button>
-                  </div>
-                ) : (
-                  <div className="space-y-4">
-                    <p className="text-sm text-muted-foreground">
-                      This module doesn't have a quiz yet. Create one to test candidates' knowledge.
-                    </p>
-                    <Button variant="outline" className="w-full" asChild>
-                      <Link to={`/quiz/new?moduleId=${moduleId}`}>
-                        Create Quiz
-                      </Link>
-                    </Button>
-                  </div>
-                )}
               </CardContent>
             </Card>
 

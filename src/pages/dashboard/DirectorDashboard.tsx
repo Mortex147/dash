@@ -9,7 +9,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import DashboardStats from "@/components/dashboard/DashboardStats";
 import CandidateList from "@/components/dashboard/CandidateList";
 import InterviewList from "@/components/dashboard/InterviewList";
-import AssessmentList from "@/components/dashboard/AssessmentList";
+import RecentResultsList from "@/components/dashboard/RecentResultsList";
 import { Interview, AssessmentWithStats } from "@/types";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
@@ -203,12 +203,9 @@ const DirectorDashboard = () => {
           </TabsContent>
 
           <TabsContent value="recent-assessments">
-             {/* TODO: AssessmentList expects AssessmentWithStats[]. 
-                 Need to adapt AssessmentList to handle DirectorAssessmentEntry[] 
-                 or create a new component for displaying assessment results. 
-                 Casting to any[] for now to pass type check. */}
-            <AssessmentList 
-              assessments={(recentAssessmentResults as any[]) || []} 
+             {/* Use the new component designed for assessment results */}
+            <RecentResultsList 
+              results={recentAssessmentResults || []} 
               isLoading={isLoadingAssessments} 
             />
           </TabsContent>

@@ -64,6 +64,7 @@ const AssessmentQuiz = () => {
   const [score, setScore] = useState<number | null>(null);
   const timerRef = useRef<NodeJS.Timeout | null>(null);
   const startTimeRef = useRef<number>(0);
+  const assessmentStartTimeRef = useRef<string | null>(null);
   
   const [preventTabChange, setPreventTabChange] = useState(false);
   
@@ -182,6 +183,7 @@ const AssessmentQuiz = () => {
   };
   
   const startAssessment = () => {
+    assessmentStartTimeRef.current = new Date().toISOString();
     setAssessmentStarted(true);
     setPreventTabChange(true);
     startTimer();
@@ -287,7 +289,15 @@ const AssessmentQuiz = () => {
         section.questions.forEach(question => {
           totalQuestions++;
           
-          if (finalAnswers[question.id] === question.correctAnswer) {
+          // Ensure both values are compared as numbers
+          const selectedAnswerIndex = finalAnswers[question.id];
+          const correctAnswerIndex = question.correctAnswer;
+          
+          if (selectedAnswerIndex !== undefined && 
+              selectedAnswerIndex !== null &&
+              correctAnswerIndex !== undefined && 
+              correctAnswerIndex !== null && 
+              Number(selectedAnswerIndex) === Number(correctAnswerIndex)) {
             correctAnswers++;
           }
         });
@@ -296,7 +306,7 @@ const AssessmentQuiz = () => {
       const calculatedScore = (correctAnswers / totalQuestions) * 100;
       setScore(calculatedScore);
       
-      if (user && assessment) {
+      if (user && assessment && assessmentStartTimeRef.current) {
         const { data: candidateData, error: candidateError } = await supabase
           .from('candidates')
           .select('id')
@@ -314,6 +324,7 @@ const AssessmentQuiz = () => {
             answers: finalAnswers,
             answer_timings: finalTimings,
             completed: true,
+            started_at: assessmentStartTimeRef.current,
             completed_at: new Date().toISOString()
           });
           
@@ -330,6 +341,9 @@ const AssessmentQuiz = () => {
           });
           
         if (activityError) throw activityError;
+      } else {
+        console.error("Cannot submit assessment: User, assessment, or start time is missing.");
+        toast.error("Submission failed: Missing required information.");
       }
       
       setAssessmentCompleted(true);

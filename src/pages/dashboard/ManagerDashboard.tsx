@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from "react";
+import React, { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import MainLayout from "@/components/layout/MainLayout";
@@ -65,7 +65,7 @@ const ManagerDashboard = ({ role }: { role: string }) => {
         const { data, error } = await query.order('updated_at', { ascending: false });
         
         console.log('pendingCandidates query result:', data);
-        
+
         if (error) {
           toast({
             variant: "destructive",
@@ -83,60 +83,39 @@ const ManagerDashboard = ({ role }: { role: string }) => {
     }
   });
 
-  // NEW: Fetch total assigned candidates count for Manager
-  const { data: totalAssignedCount, isLoading: isLoadingTotalCount } = useQuery({
-    queryKey: ['totalAssignedCandidatesCount', user?.id],
-    queryFn: async () => {
-      if (!user?.id) return 0; // Need manager ID
-      const { count, error } = await supabase
-        .from('candidates')
-        .select('*', { count: 'exact', head: true })
-        .eq('assigned_manager', user.id)
-        .neq('status', 'Closed'); // Count active assigned candidates
-      
-      if (error) {
-        console.error("Error fetching total assigned count:", error);
-        toast({ variant: "destructive", title: "Error fetching total count", description: error.message });
-        return 0; // Return 0 on error
-      }
-      return count ?? 0;
-    },
-    enabled: role?.toLowerCase() === 'manager' && !!user?.id, // Only run for managers with ID
-  });
-
-  // Fetch upcoming interviews - MODIFIED to filter by manager
+  // Fetch upcoming interviews
   const { data: upcomingInterviewsRaw, isLoading: isLoadingInterviews } = useQuery({
-    queryKey: ['upcomingInterviews', role, role === 'manager' ? user?.id : null], // Added role/user dependency
+    queryKey: ['upcomingInterviews'],
     queryFn: async () => {
-      const managerId = role === 'manager' ? user?.id : null;
-      
       try {
-        let query = supabase
+        const { data, error } = await supabase
           .from('interviews')
-          .select(`id, scheduled_at, status, candidate_id`)
+          .select(`
+            id,
+            scheduled_at,
+            status,
+            candidate_id
+          `)
           .in('status', ['scheduled', 'confirmed'])
           .gte('scheduled_at', new Date().toISOString())
           .order('scheduled_at', { ascending: true })
           .limit(5);
         
-        // Add manager filter if applicable
-        if (managerId) {
-          query = query.eq('manager_id', managerId);
-        }
-          
-        const { data, error } = await query;
-
         if (error) {
-          toast({ variant: "destructive", title: "Error fetching interviews", description: error.message });
+          toast({
+            variant: "destructive",
+            title: "Error fetching interviews",
+            description: error.message,
+          });
           throw error;
         }
+        
         return data || [];
       } catch (err) {
         console.error("Error in upcomingInterviews query:", err);
         return [];
       }
-    },
-    // Re-run if role or user ID changes
+    }
   });
 
   // Fetch candidate names for the interviews in a separate query
@@ -176,7 +155,7 @@ const ManagerDashboard = ({ role }: { role: string }) => {
   });
 
   // Combine interview data with candidate names
-  const upcomingInterviews: Interview[] = useMemo(() => {
+  const upcomingInterviews: Interview[] = React.useMemo(() => {
     if (!upcomingInterviewsRaw || !candidateProfiles) return [];
     
     return upcomingInterviewsRaw.map(interview => ({
@@ -264,44 +243,42 @@ const ManagerDashboard = ({ role }: { role: string }) => {
     }
   });
 
-  // Calculate dashboard stats based on role - MODIFIED
-  const dashboardStats = useMemo(() => {
-    const lowerCaseRole = role?.toLowerCase();
-    
-    // Determine total candidates based on role
-    // For Manager, use the specific totalAssignedCount query result
-    // For HR/Other, use the length of pendingCandidates (as it's not manager-filtered)
-    const totalCandidates = lowerCaseRole === 'manager' 
-        ? (totalAssignedCount ?? 0) 
-        : (pendingCandidates?.length || 0);
+  // Calculate dashboard stats based on role
+  const dashboardStats = React.useMemo(() => {
+    const totalCandidates = pendingCandidates?.length || 0;
     
     let reviewsCount = 0;
-    // Keep existing review count logic (relies on pendingCandidates)
+    const lowerCaseRole = role?.toLowerCase();
+
     if (lowerCaseRole === 'hr') {
       reviewsCount = pendingCandidates?.filter(c => 
         c.status === 'applied' || c.status === 'hr_review'
       ).length || 0;
     } else if (lowerCaseRole === 'manager') {
+       // Managers review candidates ready for interview or perhaps those just approved by HR
       reviewsCount = pendingCandidates?.filter(c => 
          c.status === 'hr_approved' || c.status === 'final_interview' 
       ).length || 0;
-    } // No need for fallback else, defaults to 0
+    } else {
+       // Fallback stat if role is neither HR nor Manager
+       reviewsCount = pendingCandidates?.filter(c => 
+         c.status === 'applied' || c.status === 'hr_review' || c.status === 'final_interview'
+       ).length || 0;
+    }
 
     return {
-      totalCandidates: totalCandidates,      // Uses new count for manager
-      pendingReviews: reviewsCount,         // Still based on pendingCandidates filter
-      // Use the length of the processed upcomingInterviews which is now manager-filtered
-    interviewsScheduled: upcomingInterviews?.length || 0,
-  };
-  }, [pendingCandidates, upcomingInterviews, role, totalAssignedCount]); // Added dependencies
+      totalCandidates: totalCandidates, // Total fetched candidates relevant to the role
+      pendingReviews: reviewsCount,     // Count of candidates needing review by this role
+      interviewsScheduled: upcomingInterviews?.length || 0,
+    };
+  }, [pendingCandidates, upcomingInterviews, role]); // Keep original role in dependencies if needed elsewhere
 
   // Get next interview date if any
   const nextInterviewDate = upcomingInterviews && upcomingInterviews.length > 0
     ? upcomingInterviews[0].scheduledAt
     : undefined;
 
-  // Update overall loading state
-  const isLoading = isLoadingCandidates || isLoadingTotalCount || isLoadingInterviews || isLoadingProfiles || isLoadingAssessments;
+  const isLoading = isLoadingCandidates || isLoadingInterviews || isLoadingProfiles;
 
   return (
     <MainLayout>

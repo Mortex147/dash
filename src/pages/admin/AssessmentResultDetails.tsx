@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import MainLayout from "@/components/layout/MainLayout";
@@ -18,8 +17,7 @@ import { supabase } from "@/integrations/supabase/client";
 const AssessmentResultDetails = () => {
   const { resultId } = useParams();
   const [result, setResult] = useState<any>(null);
-  const [assessment, setAssessment] = useState<any>(null);
-  const [candidate, setCandidate] = useState<any>(null);
+  const [allQuestions, setAllQuestions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadingError, setLoadingError] = useState<string | null>(null);
 
@@ -28,26 +26,33 @@ const AssessmentResultDetails = () => {
     const loadResult = async () => {
       setLoading(true);
       setLoadingError(null);
-      
+      setAllQuestions([]);
+
       try {
         if (!resultId) {
           setLoadingError("Result ID is missing");
           return;
         }
         
-        // Fetch result with related data
+        // Fetch result with related data including questions and timings
         const { data: resultData, error: resultError } = await supabase
           .from("assessment_results")
           .select(`
             *,
-            assessments:assessment_id(*),
-            candidates:candidate_id(*, profiles:id(*))
+            answer_timings,
+            assessments!inner(*, assessment_sections!inner(*, questions!inner(*))),
+            candidates!assessment_results_candidate_id_fkey(*, profiles!candidates_id_fkey(*))
           `)
           .eq("id", resultId)
           .single();
         
         if (resultError) {
-          throw resultError;
+          if (resultError.code === 'PGRST204') {
+            setLoadingError("Could not load full result details. Associated assessment or questions might be missing.");
+          } else {
+            throw resultError;
+          }
+          return;
         }
         
         if (!resultData) {
@@ -55,9 +60,20 @@ const AssessmentResultDetails = () => {
           return;
         }
         
+        console.log("Fetched result data:", resultData);
+        console.log("Type of answers:", typeof resultData.answers);
+        console.log("Value of answers:", resultData.answers);
+        
         setResult(resultData);
-        setAssessment(resultData.assessments);
-        setCandidate(resultData.candidates);
+
+        let questions: any[] = [];
+        if (resultData.assessments?.assessment_sections) {
+          questions = resultData.assessments.assessment_sections.flatMap(
+            (section: any) => section.questions || []
+          );
+          questions.sort((a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime());
+        }
+        setAllQuestions(questions);
       } catch (error: any) {
         console.error("Error loading assessment result:", error.message);
         setLoadingError(`Failed to load assessment result: ${error.message}`);
@@ -140,7 +156,7 @@ const AssessmentResultDetails = () => {
             </p>
           </div>
           <Button asChild variant="outline">
-            <Link to={`/assessments/${assessment?.id || ''}`}>
+            <Link to={`/assessments/${result?.assessments?.id || ''}`}>
               <ArrowLeft className="h-4 w-4 mr-2" /> Back to Assessment
             </Link>
           </Button>
@@ -162,32 +178,32 @@ const AssessmentResultDetails = () => {
                   </div>
                   <div>
                     <h3 className="font-medium">
-                      {candidate?.profiles?.name || "Unknown Candidate"}
+                      {result?.candidates?.profiles?.name || "Unknown Candidate"}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      {candidate?.profiles?.email || "No email available"}
+                      {result?.candidates?.profiles?.email || "No email available"}
                     </p>
                   </div>
                 </div>
                 
                 <div className="pt-2">
                   <h4 className="text-sm font-medium mb-2">Region</h4>
-                  <Badge variant="outline">{candidate?.region || "Not specified"}</Badge>
+                  <Badge variant="outline">{result?.candidates?.region || "Not specified"}</Badge>
                 </div>
 
                 <div>
                   <h4 className="text-sm font-medium mb-2">Status</h4>
                   <Badge
                     className={
-                      candidate?.status === "hired"
+                      result?.candidates?.status === "hired"
                         ? "bg-green-100 text-green-800"
-                        : candidate?.status === "rejected"
+                        : result?.candidates?.status === "rejected"
                         ? "bg-red-100 text-red-800"
                         : "bg-blue-100 text-blue-800"
                     }
                   >
-                    {(candidate?.status || "applied").charAt(0).toUpperCase() +
-                      (candidate?.status || "applied").slice(1)}
+                    {(result?.candidates?.status || "applied").charAt(0).toUpperCase() +
+                      (result?.candidates?.status || "applied").slice(1)}
                   </Badge>
                 </div>
               </div>
@@ -204,9 +220,9 @@ const AssessmentResultDetails = () => {
             <CardContent>
               <div className="space-y-4">
                 <div>
-                  <h3 className="text-lg font-medium">{assessment?.title || "Unknown Assessment"}</h3>
+                  <h3 className="text-lg font-medium">{result?.assessments?.title || "Unknown Assessment"}</h3>
                   <p className="text-sm text-muted-foreground mt-1">
-                    {assessment?.description || "No description available"}
+                    {result?.assessments?.description || "No description available"}
                   </p>
                 </div>
                 
@@ -286,41 +302,70 @@ const AssessmentResultDetails = () => {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {result?.answers ? (
+            {allQuestions.length > 0 && result?.answers ? (
               <div className="space-y-6">
-                {Array.isArray(result.answers) ? (
-                  result.answers.map((answer: any, index: number) => (
-                    <div key={index} className="border p-4 rounded-md">
-                      <h4 className="font-medium mb-2">Question {index + 1}</h4>
-                      <div className="space-y-2">
-                        <p className="text-sm">{answer.question}</p>
-                        <div className="flex items-center space-x-2">
-                          <span className="text-sm font-medium">Selected answer:</span>
-                          <span className="text-sm">Option {answer.selected + 1}</span>
-                          {answer.correct !== undefined && (
-                            answer.correct ? (
-                              <CheckCircle className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <X className="h-4 w-4 text-red-500" />
-                            )
-                          )}
-                        </div>
-                        {answer.time_taken && (
-                          <div className="flex items-center space-x-2">
-                            <span className="text-sm font-medium">Time taken:</span>
-                            <span className="text-sm">{answer.time_taken} seconds</span>
-                          </div>
+                {allQuestions.map((question, index) => {
+                  const selectedIndex = result.answers![question.id];
+                  const isSelected = selectedIndex !== undefined && selectedIndex !== null;
+                  const correctAnswerIndex = question.correct_answer;
+                  
+                  console.log(`Question ${index + 1} (${question.id}):`);
+                  console.log(`  SelectedIndex: ${selectedIndex} (Type: ${typeof selectedIndex})`);
+                  console.log(`  CorrectAnswerIndex: ${correctAnswerIndex} (Type: ${typeof correctAnswerIndex})`);
+
+                  const isCorrect = isSelected && selectedIndex === correctAnswerIndex;
+                  console.log(`  IsCorrect: ${isCorrect}`);
+                  
+                  const timeTaken = result.answer_timings && typeof result.answer_timings === 'object' 
+                                    ? result.answer_timings[question.id] 
+                                    : undefined;
+
+                  const options = Array.isArray(question.options) ? question.options : [];
+
+                  return (
+                    <div key={question.id} className="border p-4 rounded-md space-y-3 bg-white shadow-sm">
+                      <h4 className="font-semibold text-gray-700">Question {index + 1}</h4>
+                      <p className="text-sm bg-gray-50 p-3 rounded border border-gray-200 text-gray-800">{question.text || "Question text missing"}</p>
+
+                      <div className="flex items-center space-x-3 text-sm">
+                        <span className="font-medium w-28 shrink-0 text-gray-600">Selected:</span>
+                        {isSelected ? (
+                           <span className={`flex-1 ${!isCorrect ? 'text-red-600' : 'text-gray-800'}`}>{options[selectedIndex] || `Invalid Option index (${selectedIndex})`}</span>
+                        ) : (
+                           <span className="flex-1 text-gray-500 italic">Not answered</span>
+                        )}
+                        {isSelected && (
+                          isCorrect ? (
+                            <CheckCircle className="h-5 w-5 text-green-500 shrink-0" />
+                          ) : (
+                            <X className="h-5 w-5 text-red-500 shrink-0" />
+                          )
                         )}
                       </div>
+
+                      {!isSelected || !isCorrect && correctAnswerIndex !== undefined && correctAnswerIndex !== null && (
+                         <div className="flex items-center space-x-3 text-sm text-green-700">
+                           <span className="font-medium w-28 shrink-0">Correct:</span>
+                           <span className="flex-1 font-medium">{options[correctAnswerIndex] || `Invalid Option index (${correctAnswerIndex})`}</span>
+                         </div>
+                      )}
+
+                      {timeTaken !== undefined && timeTaken !== null && (
+                        <div className="flex items-center space-x-2 text-xs text-gray-500 pt-2 border-t border-gray-100 mt-3">
+                          <Clock className="h-3.5 w-3.5" />
+                          <span>Time taken: {timeTaken} seconds</span>
+                        </div>
+                      )}
                     </div>
-                  ))
-                ) : (
-                  <p className="text-muted-foreground">Answer data is not in the expected format.</p>
-                )}
+                  );
+                })}
               </div>
             ) : (
-              <div className="text-center py-8">
-                <p className="text-muted-foreground">No detailed answer data available for this attempt.</p>
+              <div className="text-center py-12">
+                <FileCheck className="h-12 w-12 mx-auto text-gray-300" />
+                <p className="mt-4 text-gray-500">
+                  {loading ? 'Loading answer details...' : 'No detailed answer data available or questions could not be loaded.'}
+                </p>
               </div>
             )}
           </CardContent>

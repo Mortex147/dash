@@ -62,6 +62,9 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 type Video = Database['public']['Tables']['videos']['Row'];
 type TrainingModule = Database['public']['Tables']['training_modules']['Row']; // Assuming this is the quizzes table
 
+// Add Assessment type
+interface AssessmentOption { id: string; title: string; }
+
 const TrainingManagement = () => {
   const { user } = useAuth();
   const queryClient = useQueryClient();
@@ -101,6 +104,10 @@ const TrainingManagement = () => {
   const [editQuizTitle, setEditQuizTitle] = useState("");
   const [editQuizDescription, setEditQuizDescription] = useState("");
   const [editQuizModule, setEditQuizModule] = useState("product");
+  const [editQuizId, setEditQuizId] = useState<string | null>(null); // Add state for selected quiz_id
+
+  // Add state for assessments list
+  const [assessments, setAssessments] = useState<AssessmentOption[]>([]);
 
   // Fetch Training Videos
   const { 
@@ -144,6 +151,27 @@ const TrainingManagement = () => {
     enabled: !!user,
   });
 
+  // Add useQuery to fetch Assessments
+  const { 
+    isLoading: isLoadingAssessments,
+    error: assessmentsError 
+  } = useQuery<AssessmentOption[]>({
+    queryKey: ['assessmentsList'],
+    queryFn: async (): Promise<AssessmentOption[]> => {
+      const { data, error } = await supabase
+        .from('assessments')
+        .select('id, title')
+        .order('title', { ascending: true });
+      if (error) {
+        toast.error("Failed to fetch assessments list: " + error.message);
+        throw new Error(error.message);
+      }
+      setAssessments(data || []); // Set state directly on success
+      return data || [];
+    },
+    enabled: !!user, // Only run if user is logged in
+  });
+
   // --- MUTATIONS ---
 
   // CREATE VIDEO (Corrected module and added duration)
@@ -172,9 +200,10 @@ const TrainingManagement = () => {
     },
   });
 
-  // CREATE QUIZ (Updated mutationFn type if needed, includes module)
+  // CREATE QUIZ (Fix type casting)
   const createQuizMutation = useMutation({
-    mutationFn: async (newQuizData: Omit<TrainingModule, 'id' | 'created_at' | 'updated_at'>) => {
+    // Expect the Insert type directly
+    mutationFn: async (newQuizData: TablesInsert<"training_modules">) => {
       // Ensure newQuizData includes 'module' which is required by DB
       const { data, error } = await supabase
         .from('training_modules')
@@ -218,7 +247,7 @@ const TrainingManagement = () => {
     },
   });
 
-  // UPDATE QUIZ/MODULE Mutation
+  // UPDATE QUIZ Handler (Add quiz_id)
   const updateQuizMutation = useMutation({
     mutationFn: async (updatedQuizData: Partial<TrainingModule> & { id: string }) => {
       const { id, ...updateData } = updatedQuizData;
@@ -284,7 +313,7 @@ const TrainingManagement = () => {
     });
   };
 
-  // CREATE QUIZ HANDLER (Explicit type casting)
+  // CREATE QUIZ HANDLER (Fix type casting)
   const handleAddQuiz = () => {
     if (!newQuizTitle || !newQuizModule) { 
       toast.error("Quiz title and module are required.");
@@ -292,16 +321,16 @@ const TrainingManagement = () => {
     }
     if (!user) { toast.error("You must be logged in."); return; }
 
-    // Cast the object to the correct Supabase Insert type
+    // Use the Supabase generated Insert type correctly
     const quizData: TablesInsert<"training_modules"> = {
       title: newQuizTitle,
       description: newQuizDescription || null,
       module: newQuizModule, 
-      created_by: user.id
-      // Set optional fields to null or default if necessary by your logic/schema
+      created_by: user.id,
+      // Explicitly set other optional fields if needed, otherwise they default
       // content: null, 
-      // quiz_id: null,
-      // video_url: null 
+      // video_url: null,
+      // quiz_id: null, // Don't set quiz_id on creation here
     };
 
     createQuizMutation.mutate(quizData);
@@ -331,7 +360,8 @@ const TrainingManagement = () => {
     setEditingQuiz(quiz);
     setEditQuizTitle(quiz.title);
     setEditQuizDescription(quiz.description || "");
-    setEditQuizModule(quiz.module || "product"); // Use existing module or default
+    setEditQuizModule(quiz.module || "product"); 
+    setEditQuizId(quiz.quiz_id || null); // Pre-fill quiz_id state
     setShowEditQuizDialog(true);
   };
 
@@ -353,16 +383,20 @@ const TrainingManagement = () => {
     });
   };
 
-  // UPDATE QUIZ Handler
+  // UPDATE QUIZ Handler (Add quiz_id)
   const handleUpdateQuiz = () => {
     if (!editingQuiz) return;
-    // TODO: Add validation if needed
+    if (!editQuizTitle || !editQuizModule) {
+      toast.error("Title and Module category are required.");
+      return;
+    }
 
     updateQuizMutation.mutate({
       id: editingQuiz.id,
       title: editQuizTitle,
       description: editQuizDescription || null,
       module: editQuizModule,
+      quiz_id: editQuizId || null, // Include the selected quiz_id
     });
   };
 
@@ -742,19 +776,22 @@ const TrainingManagement = () => {
                 </DialogHeader>
                 {editingQuiz && (
                   <div className="grid gap-4 py-4">
+                    {/* Title */}
                     <div className="space-y-2">
                       <Label htmlFor="edit-quiz-title">Title</Label>
                       <Input id="edit-quiz-title" value={editQuizTitle} onChange={(e) => setEditQuizTitle(e.target.value)} required />
                     </div>
+                    {/* Description */}
                     <div className="space-y-2">
                       <Label htmlFor="edit-quiz-description">Description</Label>
                       <Textarea id="edit-quiz-description" value={editQuizDescription} onChange={(e) => setEditQuizDescription(e.target.value)} required />
                     </div>
+                    {/* Module Category Select */}
                     <div className="space-y-2">
-                      <Label htmlFor="edit-quiz-module">Module</Label>
+                      <Label htmlFor="edit-quiz-module">Module Category</Label>
                       <Select value={editQuizModule} onValueChange={setEditQuizModule}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select module" />
+                          <SelectValue placeholder="Select module category" />
                         </SelectTrigger>
                         <SelectContent>
                           <SelectItem value="product">Product Knowledge</SelectItem>
@@ -763,7 +800,37 @@ const TrainingManagement = () => {
                         </SelectContent>
                       </Select>
                     </div>
-                    {/* TODO: Add other fields from training_modules if editable */}
+
+                    {/* Associated Quiz/Assessment Select */}
+                    <div className="space-y-2">
+                      <Label htmlFor="edit-quiz-assessment">Associated Quiz/Assessment</Label>
+                      <Select 
+                        value={editQuizId ?? "__NONE__"}
+                        onValueChange={(value) => setEditQuizId(value === "__NONE__" ? null : value)}
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select an assessment (optional)" />
+                        </SelectTrigger>
+                        <SelectContent>
+                           <SelectItem value="__NONE__">None</SelectItem> 
+                           {isLoadingAssessments ? (
+                              <div className="p-2 text-center text-sm text-muted-foreground">Loading...</div>
+                           ) : assessmentsError ? (
+                              <div className="p-2 text-center text-sm text-red-500">Error loading</div>
+                           ) : assessments.length === 0 ? (
+                              <div className="p-2 text-center text-sm text-muted-foreground">No assessments found</div>
+                           ) : (
+                              assessments.map((assessment) => (
+                                <SelectItem key={assessment.id} value={assessment.id}>
+                                  {assessment.title}
+                                </SelectItem>
+                              ))
+                           )}
+                        </SelectContent>
+                      </Select>
+                      <p className="text-xs text-muted-foreground pt-1">Link an existing assessment as the quiz for this module.</p>
+                    </div>
+                    
                   </div>
                 )}
                 <DialogFooter>

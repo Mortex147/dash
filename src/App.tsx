@@ -10,6 +10,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import Application from "./pages/candidate/Application";
+import StorageTest from "./pages/candidate/StorageTest";
 import CandidateDashboard from "./pages/dashboard/CandidateDashboard";
 import ManagerDashboard from "./pages/dashboard/ManagerDashboard";
 import AdminDashboard from "./pages/dashboard/AdminDashboard";
@@ -22,6 +23,7 @@ import Candidates from "./pages/manager/Candidates";
 import CandidateDetail from "./pages/manager/CandidateDetail";
 import Assessments from "./pages/manager/Assessments";
 import Analytics from "./pages/manager/Analytics";
+import Interviews from "./pages/manager/Interviews";
 import Profile from "./pages/common/Profile";
 import UserManagement from "./pages/admin/UserManagement";
 import ActivityLog from "./pages/admin/ActivityLog";
@@ -30,6 +32,7 @@ import AssessmentDetails from "./pages/admin/AssessmentDetails";
 import AssessmentResultDetails from "./pages/admin/AssessmentResultDetails";
 import AssessmentSectionDetails from "./pages/admin/AssessmentSectionDetails";
 import TrainingModuleDetails from "./pages/admin/TrainingModuleDetails";
+import QuestionDetails from "./pages/admin/QuestionDetails";
 import { AuthProvider } from "./contexts/AuthContext";
 import ProtectedRoute from "./components/auth/ProtectedRoute";
 
@@ -48,7 +51,11 @@ const App = () => (
             <Route path="/register" element={<Register />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
-            <Route path="/application" element={<Application />} />
+            <Route path="/application" element={
+              <ProtectedRoute allowedRoles={['candidate']}>
+                <Application />
+              </ProtectedRoute>
+            } />
             
             {/* Protected Routes */}
             <Route path="/dashboard/candidate" element={
@@ -108,6 +115,11 @@ const App = () => (
                 <CandidateDetail />
               </ProtectedRoute>
             } />
+            <Route path="/interviews" element={
+              <ProtectedRoute allowedRoles={['manager', 'admin', 'hr', 'director']}>
+                <Interviews />
+              </ProtectedRoute>
+            } />
             <Route path="/assessments" element={
               <ProtectedRoute allowedRoles={['manager', 'admin', 'hr', 'director']}>
                 <Assessments />
@@ -137,19 +149,29 @@ const App = () => (
             } />
             
             {/* Assessment and Training Module Detail Routes */}
-            <Route path="/assessments/:assessmentId" element={
-              <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
-                <AssessmentDetails />
-              </ProtectedRoute>
-            } />
             <Route path="/assessments/results/:resultId" element={
               <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
                 <AssessmentResultDetails />
               </ProtectedRoute>
             } />
+            <Route path="/assessments/:assessmentId" element={
+              <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
+                <AssessmentDetails />
+              </ProtectedRoute>
+            } />
+            <Route path="/assessments/sections/new" element={
+              <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
+                <AssessmentSectionDetails />
+              </ProtectedRoute>
+            } />
             <Route path="/assessments/sections/:sectionId" element={
               <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
                 <AssessmentSectionDetails />
+              </ProtectedRoute>
+            } />
+            <Route path="/questions/:questionId" element={
+              <ProtectedRoute allowedRoles={['admin', 'hr', 'director']}>
+                <QuestionDetails />
               </ProtectedRoute>
             } />
             <Route path="/training-management/:moduleId" element={
