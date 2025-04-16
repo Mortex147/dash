@@ -49,18 +49,19 @@ import { set } from "date-fns";
 import { useAuth } from "@/contexts/AuthContext";
 
 const Candidates = () => {
-  const { user } = useAuth();
+  const { user, profile } = useAuth();
   const [expandedCandidate, setExpandedCandidate] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<string | null>(null);
   const [filteredCandidates, setFilteredCandidates] = useState<any[]>([]);
   
-  // Fetch candidate data ASSIGNED TO THE CURRENT MANAGER
+  // Fetch candidate data
   const { data: candidatesData = [], isLoading: isLoadingCandidates } = useQuery({
-    // Include user ID and role in queryKey to refetch if user/role changes
-    queryKey: ['candidatesPage', user?.id, user?.role],
+    // Include user ID and profile role in queryKey 
+    queryKey: ['candidatesPage', user?.id, profile?.role],
     queryFn: async () => {
-      if (!user) return []; // Don't fetch if user is not logged in
+      // Check for profile as well, since role check depends on it
+      if (!user || !profile) return []; 
       
       try {
         // Start building the query
@@ -77,9 +78,12 @@ const Candidates = () => {
           // Ensure we only get actual candidates by checking profile role
           .eq('candidate_profile.role', 'candidate');
 
-        // Apply filter ONLY if the user is a manager
-        if (user.role === 'manager') {
+        // Apply filter ONLY if the profile role is manager
+        if (profile.role === 'manager') {
+          console.log(`[Candidates.tsx] Applying manager filter for user: ${user.id}`);
           query = query.eq('assigned_manager', user.id);
+        } else {
+          console.log(`[Candidates.tsx] Role is ${profile.role}, not applying manager filter.`);
         }
         
         // Always order
@@ -88,7 +92,7 @@ const Candidates = () => {
         // Execute the final query
         const { data, error } = await query;
 
-        console.log(`Candidates.tsx (${user.role}) Supabase Response:`, { data, error });
+        console.log(`Candidates.tsx (${profile.role}) Supabase Response:`, { data, error });
 
         if (error) {
           toast.error(`Error fetching candidates: ${error.message}`);
@@ -101,7 +105,7 @@ const Candidates = () => {
         return [];
       }
     },
-    enabled: !!user // Only run query if user exists
+    enabled: !!user && !!profile // Only run query if user and profile exist
   });
 
   // Use candidatesData as the source for filtering

@@ -143,8 +143,11 @@ const AssessmentQuiz = () => {
         if (questionsError) throw questionsError;
         
         const questions = questionsData.map((q: any) => ({
-          ...q,
-          options: Array.isArray(q.options) ? q.options : JSON.parse(q.options)
+          id: q.id,
+          text: q.text,
+          options: Array.isArray(q.options) ? q.options : JSON.parse(q.options),
+          correctAnswer: q.correct_answer,
+          timeLimit: q.time_limit
         }));
         
         const randomizedQuestions = assessmentData.randomize_questions 
@@ -237,6 +240,7 @@ const AssessmentQuiz = () => {
     if (selectedAnswer !== null) {
       newAnswers[currentQuestion.id] = selectedAnswer;
     }
+    console.log(`[AssessmentQuiz] Saving answer for Q:${currentQuestion.id}. Selected Index:`, selectedAnswer);
     
     newTimings[currentQuestion.id] = timeTaken;
     
@@ -293,17 +297,30 @@ const AssessmentQuiz = () => {
           const selectedAnswerIndex = finalAnswers[question.id];
           const correctAnswerIndex = question.correctAnswer;
           
+          // --- Detailed Logging Start ---
+          // console.log(`[AssessmentQuiz] Comparing Q:${question.id}`);
+          // console.log(`  -> Selected Index (raw):`, selectedAnswerIndex, typeof selectedAnswerIndex);
+          // console.log(`  -> Correct Index (raw):`, correctAnswerIndex, typeof correctAnswerIndex);
+          // console.log(`  -> Comparison: Number(${selectedAnswerIndex}) === Number(${correctAnswerIndex})`);
+          // --- Detailed Logging End ---
+          
           if (selectedAnswerIndex !== undefined && 
               selectedAnswerIndex !== null &&
               correctAnswerIndex !== undefined && 
               correctAnswerIndex !== null && 
               Number(selectedAnswerIndex) === Number(correctAnswerIndex)) {
             correctAnswers++;
+            // Log if correct
+            // console.log(`  -> CORRECT! Incrementing score.`);
+          } else {
+            // Log if incorrect
+            // console.log(`  -> INCORRECT! Score not incremented.`);
           }
         });
       });
       
       const calculatedScore = (correctAnswers / totalQuestions) * 100;
+      // console.log(`[AssessmentQuiz] Final Calculation: Correct=${correctAnswers}, Total=${totalQuestions}, Score=${calculatedScore}`); // Log final calc
       setScore(calculatedScore);
       
       if (user && assessment && assessmentStartTimeRef.current) {

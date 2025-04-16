@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import MainLayout from "@/components/layout/MainLayout";
@@ -18,32 +18,45 @@ import AssessmentList from "@/components/dashboard/AssessmentList";
 import { Interview, AssessmentWithStats } from "@/types";
 import { useAuth } from "@/contexts/AuthContext";
 
+// Type for the raw data fetched, including profile
+type RawCandidateData = Database['public']['Tables']['candidates']['Row'] & {
+  candidate_profile: Database['public']['Tables']['profiles']['Row'] | null;
+  assessment_results: Pick<Database['public']['Tables']['assessment_results']['Row'], 'score' | 'completed' | 'completed_at'>[] | null;
+};
+
+// Type for the raw interview data fetched
+type RawInterview = Database['public']['Tables']['interviews']['Row'] & {
+  candidate: {
+      id: string;
+      profile: Pick<Database['public']['Tables']['profiles']['Row'], 'id' | 'name' | 'email'> | null;
+  } | null;
+};
+
 const ManagerDashboard = ({ role }: { role: string }) => {
   console.log('ManagerDashboard received role:', role);
-  const { user } = useAuth();
+  const { user, profile } = useAuth(); // Need profile for role checks
   const { toast } = useToast();
-  const [activeTab, setActiveTab] = useState("pending-reviews");
+  const [activeTab, setActiveTab] = useState("assigned-candidates"); // Default to new tab name
+  const lowerCaseRole = role?.toLowerCase(); // Calculate role once
 
-  // Fetch pending candidates that need review, filtered by role and manager assignment
-  const { data: pendingCandidates, isLoading: isLoadingCandidates } = useQuery({
-    queryKey: ['pendingCandidates', role, role === 'manager' ? user?.id : null],
+  // --- Query 1: Fetch candidate data relevant to this dashboard tab ---
+  // (Fetches ALL assigned for manager, or specific statuses for others)
+  const { data: rawAssignedCandidatesData, isLoading: isLoadingAssignedCandidates } = useQuery<RawCandidateData[]>({
+    queryKey: ['dashboardAssignedCandidates', role, lowerCaseRole === 'manager' ? user?.id : null],
     queryFn: async () => {
-      const managerId = role === 'manager' ? user?.id : null;
-      if (role === 'manager' && !managerId) {
-        console.log("Manager role detected but no user ID found, skipping query.");
+      const managerId = lowerCaseRole === 'manager' ? user?.id : null;
+      if (lowerCaseRole === 'manager' && !managerId) {
+        console.log("[ManagerDashboard] Manager role, no ID, skipping assigned query.");
         return [];
       }
 
       try {
+        // Status filter logic (only applies if NOT manager)
         let relevantStatuses: string[] = [];
-        const lowerCaseRole = role?.toLowerCase();
-
         if (lowerCaseRole === 'hr') {
           relevantStatuses = ['applied', 'hr_review'];
-        } else if (lowerCaseRole === 'manager') {
-          relevantStatuses = ['hr_approved', 'training', 'final_interview']; 
-        } else {
-          relevantStatuses = ['applied', 'hr_review', 'hr_approved', 'training', 'final_interview'];
+        } else if (lowerCaseRole !== 'manager') { // Director/Admin see all pending
+           relevantStatuses = ['applied', 'hr_review', 'hr_approved', 'training', 'final_interview'];
         }
 
         let query = supabase
@@ -53,238 +66,221 @@ const ManagerDashboard = ({ role }: { role: string }) => {
             status,
             current_step,
             updated_at,
-            candidate_profile:profiles!candidates_id_fkey(name, email),
+            candidate_profile:profiles!candidates_id_fkey(id, name, email, role),
             assessment_results(score, completed, completed_at)
-          `)
-          .in('status', relevantStatuses);
-          
+          `);
+
+        // Apply status filter ONLY for non-managers who have relevant statuses defined
+        if (lowerCaseRole !== 'manager' && relevantStatuses.length > 0) {
+           query = query.in('status', relevantStatuses);
+        }
+
+        // Apply manager assignment filter ONLY for managers
         if (lowerCaseRole === 'manager' && managerId) {
             query = query.eq('assigned_manager', managerId);
         }
 
         const { data, error } = await query.order('updated_at', { ascending: false });
-        
-        console.log('pendingCandidates query result:', data);
 
+        console.log('[ManagerDashboard] RAW Assigned/Pending query result:', { data: data?.length, error });
+        console.log('[ManagerDashboard] RAW Supabase response for assigned/pending list:', data);
+        
         if (error) {
-          toast({
-            variant: "destructive",
-            title: "Error fetching candidates",
-            description: error.message,
-          });
+          toast({ variant: "destructive", title: "Error fetching dashboard candidates", description: error.message });
           throw error;
         }
-        
-        return data || [];
+        return (data || []) as RawCandidateData[];
       } catch (err) {
-        console.error("Error in pendingCandidates query:", err);
+        console.error("Error in dashboard candidates query:", err);
         return [];
       }
-    }
+    },
+    enabled: !!user // Enable query if user is logged in
   });
 
-  // Fetch upcoming interviews
-  const { data: upcomingInterviewsRaw, isLoading: isLoadingInterviews } = useQuery({
-    queryKey: ['upcomingInterviews'],
+  // --- Client-Side Filter for actual candidates ---
+  const assignedCandidates = useMemo(() => {
+      return (rawAssignedCandidatesData || []).filter(c => c?.candidate_profile?.role === 'candidate');
+  }, [rawAssignedCandidatesData]);
+
+  // --- Query 2: Get count of ALL active candidates assigned to the manager ---
+  const { data: totalAssignedCount, isLoading: isLoadingTotalCount } = useQuery<number>({
+    queryKey: ['totalAssignedCandidatesCountManager', user?.id],
     queryFn: async () => {
+      if (!user?.id) return 0;
+      const { count, error } = await supabase
+        .from('candidates')
+        .select('id', { count: 'exact', head: true })
+        .eq('assigned_manager', user.id)
+        .not('status', 'in', '("hired", "rejected")'); // Count active candidates
+
+      if (error) {
+        console.error("Error fetching total assigned count:", error);
+        return 0; // Don't toast, just return 0 on error
+      }
+      console.log(`[ManagerDashboard] Total assigned count for manager ${user.id}:`, count);
+      return count ?? 0;
+    },
+    // Run this query ONLY if the role is 'manager' and user ID exists
+    enabled: lowerCaseRole === 'manager' && !!user?.id,
+  });
+
+  // --- Query 3: Fetch upcoming interviews ---
+  const { data: upcomingInterviewsRaw, isLoading: isLoadingInterviews } = useQuery<RawInterview[]>({
+    queryKey: ['upcomingInterviewsDashboard', role, lowerCaseRole === 'manager' ? user?.id : null],
+    queryFn: async () => {
+      const managerId = lowerCaseRole === 'manager' ? user?.id : null;
+       if (lowerCaseRole === 'manager' && !managerId) return [];
+
       try {
-        const { data, error } = await supabase
+        let interviewQuery = supabase
           .from('interviews')
           .select(`
             id,
             scheduled_at,
             status,
-            candidate_id
+            candidate_id,
+            candidate:candidates!interviews_candidate_id_fkey(id, profile:profiles!candidates_id_fkey(id, name, email))
           `)
           .in('status', ['scheduled', 'confirmed'])
           .gte('scheduled_at', new Date().toISOString())
           .order('scheduled_at', { ascending: true })
           .limit(5);
         
+        if (lowerCaseRole === 'manager' && managerId) {
+          interviewQuery = interviewQuery.eq('manager_id', managerId);
+        }
+
+        const { data, error } = await interviewQuery;
+
+        console.log('[ManagerDashboard] Interviews query result:', { data: data?.length, error });
+
         if (error) {
-          toast({
-            variant: "destructive",
-            title: "Error fetching interviews",
-            description: error.message,
-          });
+          toast({ variant: "destructive", title: "Error fetching interviews", description: error.message });
           throw error;
         }
-        
-        return data || [];
+        return (data || []) as RawInterview[];
       } catch (err) {
         console.error("Error in upcomingInterviews query:", err);
         return [];
       }
-    }
-  });
-
-  // Fetch candidate names for the interviews in a separate query
-  const { data: candidateProfiles, isLoading: isLoadingProfiles } = useQuery({
-    queryKey: ['candidateProfiles', upcomingInterviewsRaw],
-    queryFn: async () => {
-      if (!upcomingInterviewsRaw || upcomingInterviewsRaw.length === 0) return {};
-      
-      try {
-        const candidateIds = upcomingInterviewsRaw.map(interview => interview.candidate_id);
-        
-        const { data, error } = await supabase
-          .from('profiles')
-          .select(`id, name, email`)
-          .in('id', candidateIds);
-          
-        if (error) {
-          toast({
-            variant: "destructive",
-            title: "Error fetching candidate profiles",
-            description: error.message,
-          });
-          throw error;
-        }
-        
-        // Convert to a map for easy lookup
-        return data.reduce((acc, profile) => {
-          acc[profile.id] = profile;
-          return acc;
-        }, {} as Record<string, {id: string, name: string, email: string}>);
-      } catch (err) {
-        console.error("Error in candidateProfiles query:", err);
-        return {};
-      }
     },
-    enabled: !!upcomingInterviewsRaw && upcomingInterviewsRaw.length > 0,
+     enabled: !!user
   });
 
-  // Combine interview data with candidate names
-  const upcomingInterviews: Interview[] = React.useMemo(() => {
-    if (!upcomingInterviewsRaw || !candidateProfiles) return [];
-    
-    return upcomingInterviewsRaw.map(interview => ({
+  // --- Process Interview Data ---
+  const upcomingInterviews: Interview[] = useMemo(() => {
+    return (upcomingInterviewsRaw || []).map((interview) => ({
       id: interview.id,
       candidateId: interview.candidate_id,
-      candidateName: candidateProfiles[interview.candidate_id]?.name || "Unknown",
-      candidateEmail: candidateProfiles[interview.candidate_id]?.email || "Unknown",
-      managerId: "", // This will be populated in a full implementation
+      candidateName: interview.candidate?.profile?.name ?? "Unknown Candidate",
+      candidateEmail: interview.candidate?.profile?.email ?? "Unknown Email",
+      managerId: interview.manager_id ?? "",
       scheduledAt: interview.scheduled_at,
-      status: interview.status as 'scheduled' | 'confirmed' | 'completed' | 'cancelled',
+      status: interview.status as Interview['status'],
     }));
-  }, [upcomingInterviewsRaw, candidateProfiles]);
+  }, [upcomingInterviewsRaw]);
 
-  // Fetch recent assessments
-  const { data: recentAssessments, isLoading: isLoadingAssessments } = useQuery<
-    AssessmentWithStats[]
-  >({
-    queryKey: ['recentAssessments'],
+  // --- Query 4: Fetch recent assessments summaries ---
+  const { data: recentAssessments, isLoading: isLoadingAssessments } = useQuery<AssessmentWithStats[]>({
+    queryKey: ['recentAssessmentsManagerDashboard'],
     queryFn: async () => {
       try {
-        const { data, error } = await supabase
+        const { data: assessmentsData, error: assessmentError } = await supabase
           .from('assessments')
-          .select(`
-            id,
-            title,
-            difficulty,
-            created_at,
-            updated_at
-          `)
+          .select('id, title, difficulty, updated_at')
           .order('updated_at', { ascending: false })
-          .limit(3);
-        
-        if (error) {
-          toast({
-            variant: "destructive",
-            title: "Error fetching assessments",
-            description: error.message,
-          });
-          throw error;
-        }
-        
-        // Get the submissions count and average scores as separate queries
-        // Type the initial data fetched from supabase
-        type AssessmentRow = Database['public']['Tables']['assessments']['Row'];
-        const assessmentsData = data as AssessmentRow[];
+          .limit(5); // Limit the number of assessments fetched
 
-        const assessmentsWithStats: AssessmentWithStats[] = await Promise.all(assessmentsData.map(async (assessment) => {
+        if (assessmentError) throw assessmentError;
+        if (!assessmentsData) return [];
+
+        const statsPromises = assessmentsData.map(async (assessment) => {
           const { data: resultsData, error: resultsError } = await supabase
             .from('assessment_results')
             .select('score')
-            .eq('assessment_id', assessment.id);
+            .eq('assessment_id', assessment.id)
+            .not('score', 'is', null);
           
           if (resultsError) {
-            console.error("Error fetching assessment results:", resultsError);
-            return {
-              id: assessment.id,
-              title: assessment.title,
-              difficulty: assessment.difficulty,
-              updated_at: assessment.updated_at,
-              avgScore: 0,
-              submissions: 0
-            };
+            console.error(`Error fetching results for assessment ${assessment.id}:`, resultsError);
+            return { ...assessment, avgScore: 0, submissions: 0 };
           }
-          
-          const scores = resultsData.map(r => r.score);
+
+          const scores = resultsData.map(r => r.score).filter(s => typeof s === 'number'); // Ensure scores are numbers
           const avgScore = scores.length > 0 
             ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length) 
             : 0;
           
           return {
-            id: assessment.id,
-            title: assessment.title,
-            difficulty: assessment.difficulty,
-            updated_at: assessment.updated_at,
+            ...assessment,
             avgScore,
             submissions: scores.length
           };
-        }));
-        
-        return assessmentsWithStats || [];
+        });
+
+        const assessmentsWithStats = await Promise.all(statsPromises);
+        console.log('[ManagerDashboard] Recent Assessments with stats:', assessmentsWithStats);
+        return assessmentsWithStats;
+
       } catch (err) {
         console.error("Error in recentAssessments query:", err);
+        toast({ variant: "destructive", title: "Error fetching assessments", description: err instanceof Error ? err.message : "Unknown error" });
         return [];
       }
-    }
+    },
+     enabled: !!user // Enable query if user is logged in
   });
 
-  // Calculate dashboard stats based on role
-  const dashboardStats = React.useMemo(() => {
-    const totalCandidates = pendingCandidates?.length || 0;
-    
-    let reviewsCount = 0;
-    const lowerCaseRole = role?.toLowerCase();
+  // --- Calculate dashboard stats ---
+  const dashboardStats = useMemo(() => {
+    // Base total count on totalAssignedCount ONLY if manager, otherwise use the length of the candidates shown in the first tab
+    const totalToShow = lowerCaseRole === 'manager' ? totalAssignedCount : assignedCandidates.length;
 
-    if (lowerCaseRole === 'hr') {
-      reviewsCount = pendingCandidates?.filter(c => 
-        c.status === 'applied' || c.status === 'hr_review'
-      ).length || 0;
-    } else if (lowerCaseRole === 'manager') {
-       // Managers review candidates ready for interview or perhaps those just approved by HR
-      reviewsCount = pendingCandidates?.filter(c => 
-         c.status === 'hr_approved' || c.status === 'final_interview' 
-      ).length || 0;
-    } else {
-       // Fallback stat if role is neither HR nor Manager
-       reviewsCount = pendingCandidates?.filter(c => 
-         c.status === 'applied' || c.status === 'hr_review' || c.status === 'final_interview'
-       ).length || 0;
-    }
+    // Calculate pending reviews count based on FILTERED assignedCandidates list for managers
+    // Or based on the raw list for others (since raw list is already filtered by status for them)
+    const listForPendingCount = lowerCaseRole === 'manager' ? assignedCandidates : (rawAssignedCandidatesData || []);
+    const pendingStatuses = lowerCaseRole === 'manager'
+        ? ['hr_approved', 'training', 'final_interview']
+        : lowerCaseRole === 'hr'
+        ? ['applied', 'hr_review']
+        : ['applied', 'hr_review', 'hr_approved', 'training', 'final_interview']; // Default/Director/Admin
+
+    const pendingReviewsCount = listForPendingCount.filter(c =>
+        c?.candidate_profile?.role === 'candidate' && // Double check role here just in case
+        pendingStatuses.includes(c.status?.toLowerCase() ?? '')
+    ).length;
+
+    const interviewsCount = upcomingInterviews.length;
 
     return {
-      totalCandidates: totalCandidates, // Total fetched candidates relevant to the role
-      pendingReviews: reviewsCount,     // Count of candidates needing review by this role
-      interviewsScheduled: upcomingInterviews?.length || 0,
+      totalCandidates: totalToShow ?? 0,
+      pendingReviews: pendingReviewsCount,
+      interviewsScheduled: interviewsCount,
     };
-  }, [pendingCandidates, upcomingInterviews, role]); // Keep original role in dependencies if needed elsewhere
+  }, [
+      lowerCaseRole,
+      assignedCandidates, // Use filtered list
+      rawAssignedCandidatesData, // Use raw list for non-managers pending calc
+      upcomingInterviews,
+      totalAssignedCount // Use count query result
+  ]);
 
-  // Get next interview date if any
-  const nextInterviewDate = upcomingInterviews && upcomingInterviews.length > 0
+  // --- Get next interview date ---
+  const nextInterviewDate = upcomingInterviews.length > 0
     ? upcomingInterviews[0].scheduledAt
     : undefined;
 
-  const isLoading = isLoadingCandidates || isLoadingInterviews || isLoadingProfiles;
+  // --- Combined loading state ---
+  const isLoading = isLoadingAssignedCandidates || isLoadingInterviews || isLoadingAssessments || (lowerCaseRole === 'manager' && isLoadingTotalCount);
 
+  // --- Render Component ---
   return (
     <MainLayout>
       <div className="space-y-8">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">{`${role} Dashboard`}</h1>
+          {/* Use profile name if available, fallback to role */}
+          <h1 className="text-3xl font-bold tracking-tight">{`${profile?.name || role} Dashboard`}</h1>
           <p className="text-muted-foreground mt-2">
             Focus on your most important tasks: reviewing candidates and upcoming interviews
           </p>
@@ -298,29 +294,31 @@ const ManagerDashboard = ({ role }: { role: string }) => {
           isLoading={isLoading}
         />
 
-        <Tabs defaultValue={activeTab} onValueChange={setActiveTab}>
+        <Tabs defaultValue="assigned-candidates" onValueChange={setActiveTab}>
           <TabsList className="mb-4">
-            <TabsTrigger value="pending-reviews">Pending Reviews</TabsTrigger>
+            <TabsTrigger value="assigned-candidates">Assigned Candidates</TabsTrigger>
             <TabsTrigger value="upcoming-interviews">Upcoming Interviews</TabsTrigger>
             <TabsTrigger value="recent-assessments">Recent Assessments</TabsTrigger>
           </TabsList>
           
-          <TabsContent value="pending-reviews">
+          <TabsContent value="assigned-candidates">
+            {/* Pass the FILTERED candidate list */}
             <CandidateList 
-              candidates={pendingCandidates || []} 
-              isLoading={isLoadingCandidates} 
+              candidates={assignedCandidates}
+              isLoading={isLoadingAssignedCandidates} // Use loading state from the primary query
               role={role}
             />
           </TabsContent>
           
           <TabsContent value="upcoming-interviews">
             <InterviewList 
-              interviews={upcomingInterviews || []} 
-              isLoading={isLoading} 
+              interviews={upcomingInterviews}
+              isLoading={isLoadingInterviews} // Use specific loading state
             />
           </TabsContent>
           
           <TabsContent value="recent-assessments">
+            {/* Assuming AssessmentList handles AssessmentWithStats[] */}
             <AssessmentList 
               assessments={recentAssessments || []} 
               isLoading={isLoadingAssessments} 
@@ -333,3 +331,4 @@ const ManagerDashboard = ({ role }: { role: string }) => {
 };
 
 export default ManagerDashboard;
+

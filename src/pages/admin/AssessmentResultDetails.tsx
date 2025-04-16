@@ -27,7 +27,7 @@ const AssessmentResultDetails = () => {
       setLoading(true);
       setLoadingError(null);
       setAllQuestions([]);
-
+      
       try {
         if (!resultId) {
           setLoadingError("Result ID is missing");
@@ -50,7 +50,7 @@ const AssessmentResultDetails = () => {
           if (resultError.code === 'PGRST204') {
             setLoadingError("Could not load full result details. Associated assessment or questions might be missing.");
           } else {
-            throw resultError;
+          throw resultError;
           }
           return;
         }

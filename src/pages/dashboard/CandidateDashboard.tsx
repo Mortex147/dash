@@ -37,6 +37,7 @@ import { Tables } from "@/integrations/supabase/types";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { useTrainingProgress, TrainingModuleProgress } from "@/hooks/useTrainingProgress";
 import ErrorMessage from "@/components/ui/error-message";
+import { RealtimeChannel } from '@supabase/supabase-js';
 
 type CandidateProfile = Tables<'candidates'>;
 type AssessmentResult = Tables<'assessment_results'> & { profiles?: { name?: string | null } | null };
@@ -78,16 +79,20 @@ const CandidateDashboard = () => {
   const error = trainingError || dashboardState.error;
 
   useEffect(() => {
+    let channel: RealtimeChannel | null = null;
+
     const fetchOtherDashboardData = async () => {
       if (!user || !profile) {
         setDashboardState(prev => ({ ...prev, loading: false, error: "User not logged in" }));
         return;
       }
 
-      setDashboardState(prev => ({ ...prev, loading: true, error: null }));
+      if (dashboardState.candidateData === null) { 
+         setDashboardState(prev => ({ ...prev, loading: true, error: null }));
+      }
 
       try {
-        console.log("Dashboard: Fetching non-training data for user:", user.id);
+        console.log("Dashboard: Fetching initial non-training data for user:", user.id);
 
         const [candidateResult, resultsResult, notificationResult] = await Promise.all([
           supabase
@@ -128,18 +133,19 @@ const CandidateDashboard = () => {
             !!fetchedCandidateData?.about_me_video && 
             !!fetchedCandidateData?.sales_pitch_video;
         
-        const currentStep = fetchedCandidateData?.current_step ?? (applicationSubmitted ? 1 : 0);
+        const currentStep = fetchedCandidateData?.current_step ?? dashboardState.currentStep ?? (applicationSubmitted ? 1 : 0);
 
-        console.log("Dashboard: Setting non-training state");
-        setDashboardState({
+        console.log("Dashboard: Setting non-training state from initial fetch or update");
+        setDashboardState(prev => ({
+          ...prev,
           loading: false,
           error: null,
-          candidateData: fetchedCandidateData,
+          candidateData: fetchedCandidateData ?? prev.candidateData,
           assessmentResults: assessmentResults,
           notifications: notifications,
           applicationSubmitted,
           currentStep,
-        });
+        }));
         
         const currentStatus = fetchedCandidateData?.status?.toLowerCase();
         if (!applicationSubmitted && (currentStatus === 'applied' || currentStatus === 'screening')) {
@@ -160,12 +166,66 @@ const CandidateDashboard = () => {
       } catch (error: any) {
         console.error("Error fetching non-training dashboard data:", error);
         setDashboardState(prev => ({ ...prev, loading: false, error: error.message || "Failed to load dashboard data." }));
+      } finally {
+        setDashboardState(prev => ({ ...prev, loading: false }));
       }
     };
 
-    fetchOtherDashboardData();
+    if (!dashboardState.candidateData) {
+      fetchOtherDashboardData();
+    }
 
-  }, [user, profile, navigate]);
+    if (user) {
+       console.log("Dashboard: Setting up realtime subscription for candidate:", user.id);
+      channel = supabase
+        .channel(`candidate_updates_${user.id}`)
+        .on<CandidateProfile>(
+          'postgres_changes',
+          { 
+            event: 'UPDATE', 
+            schema: 'public', 
+            table: 'candidates', 
+            filter: `id=eq.${user.id}`
+          },
+          (payload) => {
+            console.log('Dashboard: Realtime candidate update received:', payload.new);
+            const updatedCandidateData = payload.new as CandidateProfile;
+            const applicationSubmitted = 
+                !!updatedCandidateData?.resume && 
+                !!updatedCandidateData?.about_me_video && 
+                !!updatedCandidateData?.sales_pitch_video;
+            const currentStep = updatedCandidateData?.current_step ?? (applicationSubmitted ? 1 : 0);
+            
+            setDashboardState(prev => ({
+              ...prev,
+              candidateData: updatedCandidateData,
+              applicationSubmitted,
+              currentStep,
+              loading: false,
+              error: null
+            }));
+            toast.info("Your application status has been updated!");
+            refetchTraining(); 
+          }
+        )
+        .subscribe((status, err) => {
+          if (status === 'SUBSCRIBED') {
+            console.log('Dashboard: Realtime channel subscribed successfully!');
+          } else if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') {
+            console.error('Dashboard: Realtime channel error:', err);
+            toast.error('Connection issue: Dashboard might not update instantly.');
+          }
+        });
+    }
+
+    return () => {
+      if (channel) {
+        console.log("Dashboard: Unsubscribing from realtime channel.");
+        supabase.removeChannel(channel);
+        channel = null;
+      }
+    };
+  }, [user?.id]);
 
   const getModuleStatusBadge = (status: 'completed' | 'in_progress' | 'locked') => {
     switch (status) {

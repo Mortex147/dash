@@ -183,21 +183,21 @@ const getStepFromStatus = (status?: string): number | undefined => {
   switch (lowerStatus) {
     case "applied":
     case "screening":
-    case "hr_review":
       return 1; // Application Step
-    case "hr_approved":
-      return 2; // Assessment Step
+    case "hr_review":
+      return 2; // HR Review Step
+    case "hr_approved": // This status signifies transition TO training/assessment
     case "training":
-      return 3; // Training Step
-    case "sales_task":
-      return 4; // Sales Task Step
+      return 3; // Training/Assessment Step
     case "interview":
     case "final_interview":
-      return 5; // Interview Step
+      return 4; // Interview Step (Now Step 4)
+    case "sales_task":
+      return 5; // Sales Task Step (Now Step 5)
     case "hired":
       return 6; // Hired Step
     case "rejected":
-      return 7; // Rejected Step (adjust if needed)
+      return 7; // Process Ended/Rejected Step
     default:
       // Return undefined to avoid accidentally changing step for unknown statuses
       return undefined;

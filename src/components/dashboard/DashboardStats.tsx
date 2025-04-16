@@ -70,13 +70,6 @@ const DashboardStats: React.FC<DashboardStatsProps> = ({
             </div>
           </div>
         </CardContent>
-        <CardFooter>
-          <Link to={pendingLink}>
-            <Button variant="outline" size="sm">
-              View pending
-            </Button>
-          </Link>
-        </CardFooter>
       </Card>
 
       <Card>

@@ -1,4 +1,4 @@
-import React, { createContext, useState, useEffect, useContext } from 'react';
+import React, { createContext, useState, useEffect, useContext, useRef } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
@@ -24,6 +24,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const navigate = useNavigate();
   const location = useLocation();
+  const locationRef = useRef(location);
+
+  useEffect(() => {
+    locationRef.current = location;
+  }, [location]);
 
   // This flag helps prevent redirect loops
   const [initialAuthCheckComplete, setInitialAuthCheckComplete] = useState<boolean>(false);
@@ -50,12 +55,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.log('AuthContext: SIGNED_OUT event detected. Clearing profile.');
           setProfile(null);
           console.log('AuthContext: Navigating to /login...');
-          // Only redirect to login if not already there and not on public pages
-          if (location.pathname !== '/login' && 
-              location.pathname !== '/register' && 
-              location.pathname !== '/forgot-password' && 
-              location.pathname !== '/reset-password' &&
-              location.pathname !== '/') {
+          const currentPath = locationRef.current.pathname;
+          if (currentPath !== '/login' && 
+              currentPath !== '/register' && 
+              currentPath !== '/forgot-password' && 
+              currentPath !== '/reset-password' &&
+              currentPath !== '/') {
             navigate('/login');
           }
         }
@@ -74,11 +79,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
         setInitialAuthCheckComplete(true);
         // Only redirect to login if on protected pages
-        if (location.pathname !== '/login' && 
-            location.pathname !== '/register' && 
-            location.pathname !== '/forgot-password' && 
-            location.pathname !== '/reset-password' &&
-            location.pathname !== '/') {
+        const currentPath = locationRef.current.pathname;
+        if (currentPath !== '/login' && 
+            currentPath !== '/register' && 
+            currentPath !== '/forgot-password' && 
+            currentPath !== '/reset-password' &&
+            currentPath !== '/') {
           navigate('/login');
         }
       }
@@ -87,7 +93,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => {
       subscription.unsubscribe();
     };
-  }, [navigate, location.pathname]);
+  }, [navigate]);
 
   // Fetch user profile data from Supabase
   const fetchProfile = async (userId: string) => {
